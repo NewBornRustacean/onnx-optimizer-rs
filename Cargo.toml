@@ -1,0 +1,12 @@
+[package]
+name = "onnx-optimizer-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prost = "0.14.1"
+prost-derive = "0.14.1"
+thiserror = "2.0.12"
+
+[dev-dependencies]
+tempfile = "3.8"
