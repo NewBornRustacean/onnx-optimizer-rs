@@ -54,3 +54,89 @@ Optimizations will be implemented in levels, with each level including the passe
 *   **Correctness**: Does the model's output remain (nearly) identical to the original after optimization?
 *   **Performance**: Does the optimized model show a significant (e.g., >10%) inference speedup on standard runtimes like ONNX Runtime?
 *   **Usability**: Can anyone easily optimize their model using a simple and intuitive CLI command?
+
+
+## Design decision
+```
+     ┌──────────────────────────────── graph/ ────────────────────────────────┐
+     │                                                                        │
+     │  ┌─────────────┐                                                       │
+     │  │  arena.rs   │ ◄─────────── generic reusable component               │
+     │  │             │                                                       │
+     │  │ Arena<T>    │ ────┐                                                 │
+     │  │  ├─ items   │     │ provides                                        │
+     │  │  ├─ free    │     │ stable ID                                       │
+     │  │  └─ alloc() │     │ mapping                                         │
+     │  └─────────────┘     │                                                 │
+     │                      │                                                 │
+     │  ┌─────────────┐     │         ┌──────────────┐                        │
+     │  │ objects.rs  │     │         │              │                        │
+     │  │             │     │         │  NodeId(u32) │◄──┐                    │
+     │  │ NodeId      │─────┼────────▶│ ValueId(u32) │  │                   │
+     │  │ ValueId     │     │         │              │   │ indexes into      │
+     │  │ Tensor      │     │         └──────────────┘   │                   │
+     │  │ Node        │     │                            │                   │
+     │  │ OpKind      │     │                            │                   │
+     │  │ AttrValue   │     │                            │                   │
+     │  └─────────────┘     │                            │                   │
+     │                      │                            │                   │
+     │                      ▼                            │                   │
+     │  ┌─────────────────────────────────────────────────┼─────────────────┐ │
+     │  │               graph.rs                          │                 │ │
+     │  │                                                 │                 │ │
+     │  │  Graph {                                        │                 │ │
+     │  │    nodes:  Arena<Node>     ◄────────────────────┘                 │ │
+     │  │    values: Arena<Tensor>   ◄────────────────────┐                 │ │
+     │  │    topo_cache: Option<Vec<NodeId>>               │                 │ │
+     │  │  }                                               │                 │ │
+     │  │                                                  │                 │ │
+     │  │  ┌─── Mutation API ───────────────────┐          │                 │ │
+     │  │  │ trait GraphEdit                    │          │                 │ │
+     │  │  │  ├─ add_node()    ──┐              │          │                 │ │
+     │  │  │  ├─ remove_node() ──┼─ triggers ───┼─ invalidate_topo()         │ │
+     │  │  │  └─ rewire()      ──┘              │          │                 │ │
+     │  │  └────────────────────────────────────┘          │                 │ │
+     │  │                                                  │                 │ │
+     │  │  ┌─── View API ──────────────────────┐          │                 │ │
+     │  │  │ trait GraphView                   │          │                 │ │
+     │  │  │  ├─ node(id) ──────────────────────┼─────────▶│ Arena::get()    │ │
+     │  │  │  ├─ inputs(id)                     │          │                 │ │
+     │  │  │  └─ is_const(id)                   │          │                 │ │
+     │  │  └────────────────────────────────────┘          │                 │ │
+     │  │                                                  │                 │ │
+     │  │  ┌─── Topological Cache ──────────────┐          │                 │ │
+     │  │  │ topo_iter() ──┐                    │          │                 │ │
+     │  │  │               │ if cache is None   │          │                 │ │
+     │  │  │               ▼                    │          │                 │ │
+     │  │  │ recompute_topo() ── Kahn's algo    │          │                 │ │
+     │  │  └────────────────────────────────────┘          │                 │ │
+     │  └─────────────────────────────────────────────────────────────────────┘ │
+     │                                                                        │
+     │  ┌─────────────┐                                                       │
+     │  │   mod.rs    │  ◄── public re-exports                                │
+     │  │             │                                                       │
+     │  │ pub use {   │                                                       │
+     │  │   Arena,    │ ◄─────────── exposes Arena for other modules        │
+     │  │   Node,     │                                                       │
+     │  │   Graph,    │                                                       │
+     │  │   GraphEdit │                                                       │
+     │  │ }           │                                                       │
+     │  └─────────────┘                                                       │
+     │                                                                        │
+     │ (external) Other potential users of Arena:                            │
+     │ ──────────────────────────────────────────────────────────────────────│
+     │     Arena<PatternNode>     ← pattern matching DSL                     │
+     │     Arena<ShapeExpr>       ← shape inference IR                       │
+     │     Arena<KernelBlock>     ← execution scheduling                     │
+     │     Arena<QuantParam>      ← quantization metadata                    │
+     └────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Interactions:**
+
+1. **`Arena<T>`** provides **stable ID mapping** for any type `T`
+2. **`objects.rs`** defines all data structures that go into Arenas
+3. **`graph.rs`** uses **Arena<Node>** and **Arena<Tensor>** for storage
+4. **Any mutation** via `GraphEdit` triggers **`invalidate_topo()`**
+5. **Next `topo_iter()`** call recomputes topological order using **Kahn's algorithm**
+6. **`mod.rs`** exposes `Arena` publicly so other modules can reuse it
