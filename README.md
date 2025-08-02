@@ -58,10 +58,10 @@ Optimizations will be implemented in levels, with each level including the passe
 
 ## Design decision
 ```
-     ┌──────────────────────────────── graph/ ────────────────────────────────┐
+     ┌────────────────────────── utils/ ───────────────────── graph/ ─────────┐
      │                                                                        │
      │  ┌─────────────┐                                                       │
-     │  │  arena.rs   │ ◄─────────── generic reusable component               │
+     │  │ utils/arena.rs │ ◄──────── generic reusable component               │
      │  │             │                                                       │
      │  │ Arena<T>    │ ────┐                                                 │
      │  │  ├─ items   │     │ provides                                        │
