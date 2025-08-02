@@ -16,7 +16,7 @@
     2.  **Optimizer Core**: Applies a sequence of **Optimization Passes** to the graph.
     3.  **Emitter**: Serializes the optimized internal graph back into a valid ONNX file.
 
-### **4. Key Optimization Passes (Taxonomy)**
+### **3. Key Optimization Passes (Taxonomy)**
 
 Optimizations will be implemented in levels, with each level including the passes from the previous ones.
 
@@ -33,7 +33,7 @@ Optimizations will be implemented in levels, with each level including the passe
     *   **Layout Optimization**: Changes tensor memory layouts (e.g., `NCHW` → `NHWC` or `NCHWc`) to match hardware-specific requirements for better performance.
     *   **Approximation**: Replaces computationally expensive functions with faster, approximate equivalents, trading a minor amount of precision for significant speed.
 
-### **5. High-Level Roadmap**
+### **4. High-Level Roadmap**
 
 *   **Milestone 1 (Foundation)**
     *   Set up the Rust project and implement the basic CLI interface.
