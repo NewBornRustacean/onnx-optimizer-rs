@@ -67,18 +67,36 @@ impl<T, ID: ArenaId> Arena<T, ID> {
         self.items.get(id.into_u32() as usize)?.as_ref()
     }
 
-    pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
-        self.items.get_mut(id as usize)?.as_mut()
+    pub fn get_mut(&mut self, id: ID) -> Option<&mut T> {
+        let idx = id.into_u32() as usize;
+        self.items.get_mut(idx)?.as_mut()
     }
 
-    pub fn remove(&mut self, id: u32) -> Option<T> {
-        todo!("Remove and push index to free list");
+    pub fn free(&mut self, id: ID) -> Option<T> {
+        let idx = id.into_u32() as usize;
+
+        // Check bounds
+        if idx >= self.items.len() {
+            return None;
+        }
+
+        // Try to take the value if it's not vacant
+        match self.items[idx].take() {
+            Some(value) => {
+                self.vacant_indices.push(id.into_u32()); // mark slot as reusable
+                Some(value)
+            }
+            None => None, // was already vacant
+        }
     }
 
-    
     /// Returns the number of **occupied** slots (not the capacity).
     pub fn len(&self) -> usize {
-        todo!("Count occupied items");
+        let len_items = self.items.len();
+        let len_vacant_indices = self.vacant_indices.len();
+        let len_occupied = len_items - len_vacant_indices;
+        assert!(len_occupied <= self.items.len() );
+        len_occupied
     }
 
     pub fn is_empty(&self) -> bool {
@@ -95,10 +113,6 @@ impl<T, ID: ArenaId> Arena<T, ID> {
         ArenaIterMut {
             inner: self.items.iter_mut().enumerate(),
         }
-    }
-
-    pub fn shrink_to_fit(&mut self) {
-        todo!("Release unused capacity");
     }
 }
 
@@ -194,6 +208,22 @@ mod tests {
         assert_eq!(id3.into_u32(), id1.into_u32());
         let node3 = arena.get(id3).unwrap();
         assert_eq!(node3.value, 3);
+    }
+
+    #[test]
+    fn test_free_arena() {
+        let mut arena = Arena::<MockNode, MockId>::new();
+
+        let id = arena.alloc(MockNode::new(42));
+        assert_eq!(arena.len(), 1);
+
+        // free occupied slot
+        let value = arena.free(id).unwrap();
+        assert_eq!(value.value, 42);
+        assert_eq!(arena.len(), 0);
+
+        let value = arena.free(id);
+        assert!(value.is_none());
     }
 }
 
