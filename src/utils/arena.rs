@@ -1,0 +1,151 @@
+//! A simple slot-based arena allocator that guarantees **stable, compact IDs** for stored objects.
+//!
+//! # Responsibility
+//! * Provide an _append-only_ (with optional removal) container that returns a monotonically
+//!   increasing integer ID (`u32`) each time an element is inserted.
+//! * Keep the mapping _ID ↔ value_ stable for the lifetime of the value unless it is explicitly
+//!   removed.
+//! * Reuse freed slots to avoid unbounded memory growth.
+//!
+//! # Non-Responsibilities / Limitations
+//! * **No built-in thread-safety**: `Arena` is `!Sync` / `!Send` by default. Wrap it in
+//!   `std::sync::Mutex` / `RwLock` / `parking_lot` primitives if you need concurrent access.
+//! * **No graph semantics** such as topological ordering, inputs/outputs, etc. Those are handled by
+//!   higher-level modules (see `graph/`).
+//! * Does **not** automatically shrink memory on removals. A manual `shrink_to_fit()` is provided
+//!   if you need it.
+//! * Not designed for persistent/immutable data-structures. When you clone an `Arena`, the values
+//!   and internal state are _deep-copied_.
+//!
+//! # Typical Usage Pattern
+//! ```rust
+//! let mut arena = Arena::<Node>::new();
+//! let id = arena.alloc(Node::new(OpKind::Add));
+//! let node = arena.get(id).unwrap();
+//! ```
+
+use std::iter::Enumerate;
+use std::slice::{Iter, IterMut};
+use std::marker::PhantomData;
+
+/// Slot-based arena that owns a collection of `T` and returns stable `u32` IDs.
+#[derive(Debug, Default)]
+pub struct Arena<T, ID: ArenaId> {
+    items: Vec<Option<T>>, // None = slot is free/reclaimable
+    vacant_indices: Vec<u32>, // stack of free indices for O(1) reuse
+    _phantom: PhantomData<ID>,
+}
+
+impl<T, ID: ArenaId> Arena<T, ID> {
+    pub fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            vacant_indices: Vec::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            items: Vec::with_capacity(cap),
+            vacant_indices: Vec::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn alloc(&mut self, value: T) -> ID {
+        let idx = match self.vacant_indices.pop() {
+            Some(reuse_idx) => {
+                self.items[reuse_idx as usize] = Some(value);
+                reuse_idx
+            }
+            None => {
+                let idx = self.items.len() as u32;
+                self.items.push(Some(value));
+                idx
+            }
+        };
+
+        ID::from_u32(idx)
+    }
+
+
+    pub fn get(&self, id: u32) -> Option<&T> {
+        todo!("Lookup value, returning None for out-of-bounds or vacant slot");
+    }
+
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
+        todo!("Mutable lookup");
+    }
+
+    pub fn remove(&mut self, id: u32) -> Option<T> {
+        todo!("Remove and push index to free list");
+    }
+
+    
+    /// Returns the number of **occupied** slots (not the capacity).
+    pub fn len(&self) -> usize {
+        todo!("Count occupied items");
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn iter(&self) -> ArenaIter<'_, T> {
+        ArenaIter {
+            inner: self.items.iter().enumerate(),
+        }
+    }
+
+    pub fn iter_mut(&mut self) -> ArenaIterMut<'_, T> {
+        ArenaIterMut {
+            inner: self.items.iter_mut().enumerate(),
+        }
+    }
+
+    pub fn shrink_to_fit(&mut self) {
+        todo!("Release unused capacity");
+    }
+}
+
+pub struct ArenaIter<'a, T> {
+    inner: Enumerate<Iter<'a, Option<T>>>,
+}
+
+impl<'a, T> Iterator for ArenaIter<'a, T> {
+    type Item = (u32, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (idx, slot) in &mut self.inner {
+            if let Some(val) = slot.as_ref() {
+                return Some((idx as u32, val));
+            }
+        }
+        None
+    }
+}
+
+pub struct ArenaIterMut<'a, T> {
+    inner: Enumerate<IterMut<'a, Option<T>>>,
+}
+
+impl<'a, T> Iterator for ArenaIterMut<'a, T> {
+    type Item = (u32, &'a mut T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (idx, slot) in &mut self.inner {
+            if let Some(val) = slot.as_mut() {
+                return Some((idx as u32, val));
+            }
+        }
+        None
+    }
+}
+
+
+pub trait ArenaId: Copy {
+    fn from_u32(raw: u32) -> Self;
+    fn into_u32(self) -> u32;
+}
+
