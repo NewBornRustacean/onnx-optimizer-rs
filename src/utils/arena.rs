@@ -16,13 +16,6 @@
 //!   if you need it.
 //! * Not designed for persistent/immutable data-structures. When you clone an `Arena`, the values
 //!   and internal state are _deep-copied_.
-//!
-//! # Typical Usage Pattern
-//! ```rust
-//! let mut arena = Arena::<Node>::new();
-//! let id = arena.alloc(Node::new(OpKind::Add));
-//! let node = arena.get(id).unwrap();
-//! ```
 
 use std::iter::Enumerate;
 use std::slice::{Iter, IterMut};
@@ -70,12 +63,12 @@ impl<T, ID: ArenaId> Arena<T, ID> {
     }
 
 
-    pub fn get(&self, id: u32) -> Option<&T> {
-        todo!("Lookup value, returning None for out-of-bounds or vacant slot");
+    pub fn get(&self, id: ID) -> Option<&T> {
+        self.items.get(id.into_u32() as usize)?.as_ref()
     }
 
     pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
-        todo!("Mutable lookup");
+        self.items.get_mut(id as usize)?.as_mut()
     }
 
     pub fn remove(&mut self, id: u32) -> Option<T> {
@@ -147,5 +140,60 @@ impl<'a, T> Iterator for ArenaIterMut<'a, T> {
 pub trait ArenaId: Copy {
     fn from_u32(raw: u32) -> Self;
     fn into_u32(self) -> u32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct MockId(u32);
+    #[derive(Debug, PartialEq)]
+    struct MockNode {
+        value: i32,
+    }
+    impl MockNode {
+        fn new(val: i32) -> Self {
+            MockNode { value: val }
+        }
+    }
+
+    impl ArenaId for MockId {
+        fn from_u32(id: u32) -> Self {
+            MockId(id)
+        }
+
+        fn into_u32(self) -> u32 {
+            self.0
+        }
+    }
+
+    #[test]
+    fn test_arena_alloc_and_get() {
+        let mut arena = Arena::<MockNode, MockId>::new();
+
+        let id = arena.alloc(MockNode::new(42));
+        let node = arena.get(id).unwrap();
+
+        assert_eq!(node.value, 42);
+    }
+
+    #[test]
+    fn test_arena_reuse_vacant_slot() {
+        let mut arena = Arena::<MockNode, MockId>::new();
+
+        let id1 = arena.alloc(MockNode::new(1));
+        let id2 = arena.alloc(MockNode::new(2));
+
+        arena.items[id1.into_u32() as usize] = None;
+        arena.vacant_indices.push(id1.into_u32());
+
+        let id3 = arena.alloc(MockNode::new(3));
+
+        // id3 should reuse id1's index
+        assert_eq!(id3.into_u32(), id1.into_u32());
+        let node3 = arena.get(id3).unwrap();
+        assert_eq!(node3.value, 3);
+    }
 }
 
