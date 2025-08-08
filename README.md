@@ -140,3 +140,7 @@ Optimizations will be implemented in levels, with each level including the passe
 4. **Any mutation** via `GraphEdit` triggers **`invalidate_topo()`**
 5. **Next `topo_iter()`** call recomputes topological order using **Kahn's algorithm**
 6. **`mod.rs`** exposes `Arena` publicly so other modules can reuse it
+
+## References
+- [onnx optimizer: from onnx org.](https://github.com/onnx/optimizer) - we have similar goals with this awesome work.
+- [onnx simplifier: inspired by onnxoptimizer](https://github.com/daquexian/onnx-simplifier)

@@ -30,79 +30,85 @@ mod tests {
 
         // Input ValueInfo
         let input = ValueInfoProto {
-            name: "input".to_string(),
+            name: Some("input".to_string()),
             r#type: Some(TypeProto {
                 value: Some(type_proto::Value::TensorType(type_proto::Tensor {
-                    elem_type: 1, // FLOAT
+                    elem_type: Some(1), // FLOAT
                     shape: Some(TensorShapeProto {
                         dim: vec![
                             tensor_shape_proto::Dimension {
                                 value: Some(tensor_shape_proto::dimension::Value::DimValue(1)),
+                                ..Default::default()
                             }
                         ],
+                        ..Default::default()
                     }),
+                    ..Default::default()
                 })),
+                ..Default::default()
             }),
-            doc_string: String::new(),
+            ..Default::default()
         };
 
         // Output ValueInfo
         let output = ValueInfoProto {
-            name: "output".to_string(),
+            name: Some("output".to_string()),
             r#type: Some(TypeProto {
                 value: Some(type_proto::Value::TensorType(type_proto::Tensor {
-                    elem_type: 1, // FLOAT
+                    elem_type: Some(1), // FLOAT
                     shape: Some(TensorShapeProto {
                         dim: vec![
                             tensor_shape_proto::Dimension {
                                 value: Some(tensor_shape_proto::dimension::Value::DimValue(1)),
+                                ..Default::default()
                             }
                         ],
+                        ..Default::default()
                     }),
+                    ..Default::default()
                 })),
+                ..Default::default()
             }),
-            doc_string: String::new(),
+            ..Default::default()
         };
 
         // Identity node
         let node = NodeProto {
             input: vec!["input".to_string()],
             output: vec!["output".to_string()],
-            name: "identity_node".to_string(),
-            op_type: "Identity".to_string(),
-            domain: String::new(),
+            name: Some("identity_node".to_string()),
+            op_type: Some("Identity".to_string()),
+            domain: Some(String::new()),
             attribute: vec![],
-            doc_string: String::new(),
+            ..Default::default()
         };
 
         // Graph
         let graph = GraphProto {
             node: vec![node],
-            name: "minimal_graph".to_string(),
+            name: Some("minimal_graph".to_string()),
             initializer: vec![],
             sparse_initializer: vec![],
             input: vec![input],
             output: vec![output],
             value_info: vec![],
-            doc_string: String::new(),
+            ..Default::default()
         };
 
         // Model
         ModelProto {
-            ir_version: 8, // ONNX IR version
+            ir_version: Some(8), // ONNX IR version
             opset_import: vec![OperatorSetIdProto {
-                domain: String::new(),
-                version: 18, // opset version
+                domain: Some(String::new()),
+                version: Some(18), // opset version
+                ..Default::default()
             }],
-            producer_name: "onnx-optimizer-rs".to_string(),
-            producer_version: "0.1.0".to_string(),
-            domain: String::new(),
-            model_version: 1,
-            doc_string: String::new(),
+            producer_name: Some("onnx-optimizer-rs".to_string()),
+            producer_version: Some("0.1.0".to_string()),
+            domain: Some(String::new()),
+            model_version: Some(1),
             graph: Some(graph),
-            metadata_props: vec![],
-            training_info: vec![],
-            functions: vec![],
+            ..Default::default()
         }
     }
 
