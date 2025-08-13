@@ -1,5 +1,9 @@
 use std::collections::HashMap;
 
+use crate::proto;
+use crate::utils::arena::{Arena, ArenaId};
+use crate::graph::traits::{GraphView, GraphEdit};
+
 /// Stable identifier for nodes in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(pub u32);
@@ -122,6 +126,20 @@ pub enum OpKind {
     Unknown(String),
 }
 
+#[derive(Debug)]
+pub struct Graph {
+    pub nodes: Arena<Node, NodeId>,
+    pub values: Arena<Tensor, ValueId>,
+    pub topo_cache: Option<Vec<NodeId>>,
+    // Maps each value to its producing node
+    value_producer: HashMap<ValueId, NodeId>,
+    // Maps each value to the list of consuming nodes
+    value_consumers: HashMap<ValueId, Vec<NodeId>>,
+    // Graph-level IO value ids (optional; empty by default)
+    graph_input_values: Vec<ValueId>,
+    graph_output_values: Vec<ValueId>,
+}
+
 /// Attribute values that can be stored in nodes
 #[derive(Debug, Clone)]
 pub enum AttrValue {
@@ -135,22 +153,22 @@ pub enum AttrValue {
     Strings(Vec<String>),
 }
 
-impl NodeId {
-    pub fn new(id: u32) -> Self {
+impl ArenaId for NodeId {
+    fn from_u32(id: u32) -> Self {
         NodeId(id)
     }
-    
-    pub fn as_u32(&self) -> u32 {
+
+    fn into_u32(self) -> u32 {
         self.0
     }
 }
 
-impl ValueId {
-    pub fn new(id: u32) -> Self {
+impl ArenaId for ValueId {
+    fn from_u32(id: u32) -> Self {
         ValueId(id)
     }
     
-    pub fn as_u32(&self) -> u32 {
+    fn into_u32(self) -> u32 {
         self.0
     }
 }
@@ -217,3 +235,124 @@ impl Node {
         self
     }
 }
+
+
+impl Graph {
+    pub fn new() -> Self {
+        Self {
+            nodes: Arena::new(),
+            values: Arena::new(),
+            topo_cache: None,
+            value_producer: HashMap::new(),
+            value_consumers: HashMap::new(),
+            graph_input_values: Vec::new(),
+            graph_output_values: Vec::new(),
+        }
+    }
+
+}
+
+
+impl GraphView for Graph {
+    fn node(&self, id: NodeId) -> Option<&Node> {
+        self.nodes.get(id)
+    }
+
+    fn tensor(&self, id: ValueId) -> Option<&Tensor> {
+        self.values.get(id)
+    }
+
+    fn inputs(&self, node: NodeId) -> &[ValueId] {
+        self.nodes
+            .get(node)
+            .map(|n| n.inputs.as_slice())
+            .unwrap_or(&[])
+    }
+
+    fn outputs(&self, node: NodeId) -> &[ValueId] {
+        self.nodes
+            .get(node)
+            .map(|n| n.outputs.as_slice())
+            .unwrap_or(&[])
+    }
+
+    fn producer(&self, value: ValueId) -> Option<NodeId> {
+        self.value_producer.get(&value).copied()
+    }
+
+    fn consumers(&self, value: ValueId) -> &[NodeId] {
+        self
+            .value_consumers
+            .get(&value)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    fn graph_inputs(&self) -> &[ValueId] {
+        self.graph_input_values.as_slice()
+    }
+
+    fn graph_outputs(&self) -> &[ValueId] {
+        self.graph_output_values.as_slice()
+    }
+ 
+}
+
+impl GraphEdit for Graph {
+    fn add_node(&mut self, node: Node) -> NodeId {
+        let node_id = self.nodes.alloc(node);
+        if let Some(n) = self.nodes.get(node_id) {
+            // Register producers for each output
+            for &value_id in &n.outputs {
+                self.value_producer.insert(value_id, node_id);
+            }
+            // Register consumers for each input
+            for &value_id in &n.inputs {
+                self
+                    .value_consumers
+                    .entry(value_id)
+                    .or_default()
+                    .push(node_id);
+            }
+        }
+        // Invalidate cached topology if present
+        self.topo_cache = None;
+        node_id
+    }
+
+    fn add_value(&mut self, tensor: Tensor) -> ValueId {
+        self.values.alloc(tensor)
+    }
+
+    fn remove_node(&mut self, node: NodeId) {
+        if let Some(removed) = self.nodes.free(node) {
+            // Clean up producer entries for outputs
+            for value_id in removed.outputs {
+                self.value_producer.remove(&value_id);
+            }
+            // Clean up consumer entries for inputs
+            for value_id in removed.inputs {
+                if let Some(consumers) = self.value_consumers.get_mut(&value_id) {
+                    consumers.retain(|&n| n != node);
+                    if consumers.is_empty() {
+                        self.value_consumers.remove(&value_id);
+                    }
+                }
+            }
+            self.topo_cache = None;
+        }
+    }
+
+    fn remove_value(&mut self, value: ValueId) {
+        let _ = self.values.free(value);
+        self.value_producer.remove(&value);
+        self.value_consumers.remove(&value);
+        self.topo_cache = None;
+    }
+
+    fn invalidate_topology(&mut self) {
+        self.topo_cache = None;
+    }
+}
+
+
