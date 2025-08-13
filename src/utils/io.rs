@@ -1,4 +1,4 @@
-use crate::{error::OnnxOptError, proto};
+use crate::utils::{error::OnnxOptError, proto};
 use prost::Message;
 use std::{fs::File, io::{Read, Write}, path::Path};
 
