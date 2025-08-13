@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-
+use std::str::FromStr;
 use crate::proto;
+use strum_macros::{AsRefStr, Display, EnumString};
 use crate::utils::arena::{Arena, ArenaId};
 use crate::graph::traits::{GraphView, GraphEdit};
 
@@ -71,7 +72,8 @@ pub struct Node {
 }
 
 /// Enumeration of all supported operation types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, EnumString, AsRefStr, Display)]
+#[strum(serialize_all = "PascalCase")]
 pub enum OpKind {
     // Arithmetic operations
     Add,
@@ -123,9 +125,26 @@ pub enum OpKind {
     Less,
     
     // Custom or unknown operations
+    #[strum(disabled)]
     Unknown(String),
 }
 
+impl OpKind {
+    pub fn from_onnx(op: &str) -> Self {
+        
+        match OpKind::from_str(op) {
+            Ok(k) => k,
+            Err(_) => OpKind::Unknown(op.to_string()),
+        }
+    }
+
+    pub fn as_onnx_str(&self) -> &str {
+        match self {
+            OpKind::Unknown(s) => s.as_str(),
+            _ => self.as_ref(),
+        }
+    }
+}
 #[derive(Debug)]
 pub struct Graph {
     pub nodes: Arena<Node, NodeId>,
@@ -356,3 +375,53 @@ impl GraphEdit for Graph {
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::OpKind;
+
+    #[test]
+    fn test_from_onnx_known_ops() {
+        assert_eq!(OpKind::from_onnx("Add"), OpKind::Add);
+        assert_eq!(OpKind::from_onnx("Sub"), OpKind::Sub);
+        assert_eq!(OpKind::from_onnx("Mul"), OpKind::Mul);
+        assert_eq!(OpKind::from_onnx("Div"), OpKind::Div);
+
+        assert_eq!(OpKind::from_onnx("Relu"), OpKind::Relu);
+        assert_eq!(OpKind::from_onnx("MatMul"), OpKind::MatMul);
+        assert_eq!(OpKind::from_onnx("Gemm"), OpKind::Gemm);
+        assert_eq!(OpKind::from_onnx("Concat"), OpKind::Concat);
+        assert_eq!(OpKind::from_onnx("ReduceMean"), OpKind::ReduceMean);
+        assert_eq!(OpKind::from_onnx("MaxPool"), OpKind::MaxPool);
+    }
+
+    #[test]
+    fn test_from_onnx_unknown_op() {
+        let k = OpKind::from_onnx("CustomOp_XYZ");
+        assert_eq!(k, OpKind::Unknown("CustomOp_XYZ".to_string()));
+        // as_onnx_str should return the original op string for Unknown
+        assert_eq!(k.as_onnx_str(), "CustomOp_XYZ");
+    }
+
+    #[test]
+    fn test_roundtrip_known_ops() {
+        let ops = [
+            OpKind::Add,
+            OpKind::Sub,
+            OpKind::Mul,
+            OpKind::Div,
+            OpKind::Relu,
+            OpKind::MatMul,
+            OpKind::Gemm,
+            OpKind::Concat,
+            OpKind::ReduceMean,
+            OpKind::MaxPool,
+        ];
+
+        for k in ops.iter() {
+            let s = k.as_onnx_str();
+            let back = OpKind::from_onnx(s);
+            assert_eq!(&back, k, "roundtrip failed for {}", s);
+        }
+    }
+}
