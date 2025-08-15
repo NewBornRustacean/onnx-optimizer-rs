@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-prost = "0.14.1"
-prost-derive = "0.14.1"
+onnx-proto = { path = "onnx-proto" }
+prost = "0.13"
+strum = "0.27.2"
+strum_macros = "0.27.2"
 thiserror = "2.0.12"
 
 [dev-dependencies]
+hf-hub = "0.4.3"
 tempfile = "3.8"
-
-[build-dependencies]
-prost-build = "0.14.1"

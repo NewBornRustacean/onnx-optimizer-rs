@@ -18,13 +18,13 @@
 //!   and internal state are _deep-copied_.
 
 use std::iter::Enumerate;
-use std::slice::{Iter, IterMut};
 use std::marker::PhantomData;
+use std::slice::{Iter, IterMut};
 
 /// Slot-based arena that owns a collection of `T` and returns stable `u32` IDs.
 #[derive(Debug, Default)]
 pub struct Arena<T, ID: ArenaId> {
-    items: Vec<Option<T>>, // None = slot is free/reclaimable
+    items: Vec<Option<T>>,    // None = slot is free/reclaimable
     vacant_indices: Vec<u32>, // stack of free indices for O(1) reuse
     _phantom: PhantomData<ID>,
 }
@@ -62,7 +62,6 @@ impl<T, ID: ArenaId> Arena<T, ID> {
         ID::from_u32(idx)
     }
 
-
     pub fn get(&self, id: ID) -> Option<&T> {
         self.items.get(id.into_u32() as usize)?.as_ref()
     }
@@ -95,7 +94,7 @@ impl<T, ID: ArenaId> Arena<T, ID> {
         let len_items = self.items.len();
         let len_vacant_indices = self.vacant_indices.len();
         let len_occupied = len_items - len_vacant_indices;
-        assert!(len_occupied <= self.items.len() );
+        assert!(len_occupied <= self.items.len());
         len_occupied
     }
 
@@ -113,6 +112,20 @@ impl<T, ID: ArenaId> Arena<T, ID> {
         ArenaIterMut {
             inner: self.items.iter_mut().enumerate(),
         }
+    }
+
+    /// Returns an iterator over all valid IDs in the arena
+    pub fn ids(&self) -> impl Iterator<Item = ID> + '_ {
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, slot)| {
+                if slot.is_some() {
+                    Some(ID::from_u32(idx as u32))
+                } else {
+                    None
+                }
+            })
     }
 }
 
@@ -149,7 +162,6 @@ impl<'a, T> Iterator for ArenaIterMut<'a, T> {
         None
     }
 }
-
 
 pub trait ArenaId: Copy {
     fn from_u32(raw: u32) -> Self;
@@ -226,4 +238,3 @@ mod tests {
         assert!(value.is_none());
     }
 }
-

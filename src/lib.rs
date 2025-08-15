@@ -1,12 +1,11 @@
-mod error;
-mod utils;
-mod graph;
-mod io;
+pub mod graph;
+pub mod utils;
 
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
-}
+// Re-export the proto crate for convenience
+pub use onnx_proto as proto;
 
-pub use graph::*;
-pub use error::OnnxOptError;
-pub use io::*;
+// Re-export common types for convenience
+pub use graph::objects::{Graph, Node, Tensor, NodeId, ValueId, OpKind, DataType};
+pub use graph::traits::{GraphView, GraphEdit};
+pub use utils::io::{load_model, save_model};
+pub use utils::error::OnnxOptError;
