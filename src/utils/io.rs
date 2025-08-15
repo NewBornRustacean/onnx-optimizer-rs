@@ -1,17 +1,17 @@
 use crate::utils::error::OnnxOptError;
-use onnx_proto::ModelProto;
+use onnx_proto;
 use prost::Message;
 use std::{fs::File, io::{Read, Write}, path::Path};
 
 /// *.onnx → ModelProto
-pub fn load_model<P: AsRef<Path>>(path: P) -> Result<ModelProto, OnnxOptError> {
+pub fn load_model<P: AsRef<Path>>(path: P) -> Result<onnx_proto::ModelProto, OnnxOptError> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
-    Ok(ModelProto::decode(&*buf)?)
+    Ok(onnx_proto::ModelProto::decode(&*buf)?)
 }
 
 /// ModelProto → *.onnx
-pub fn save_model<P: AsRef<Path>>(model: &ModelProto, path: P) -> Result<(), OnnxOptError> {
+pub fn save_model<P: AsRef<Path>>(model: &onnx_proto::ModelProto, path: P) -> Result<(), OnnxOptError> {
     let mut buf = Vec::new();
     model.encode(&mut buf)?;
     File::create(path)?.write_all(&buf)?;
@@ -96,19 +96,17 @@ mod tests {
     use tempfile::NamedTempFile;
 
     /// Creates a minimal ONNX model with a single Identity operator
-    fn create_minimal_model() -> proto::ModelProto {
-        use proto::*;
-
+    fn create_minimal_model() -> onnx_proto::ModelProto {
         // Input ValueInfo
-        let input = ValueInfoProto {
+        let input = onnx_proto::ValueInfoProto {
             name: Some("input".to_string()),
-            r#type: Some(TypeProto {
-                value: Some(type_proto::Value::TensorType(type_proto::Tensor {
+            r#type: Some(onnx_proto::TypeProto {
+                value: Some(onnx_proto::type_proto::Value::TensorType(onnx_proto::type_proto::Tensor {
                     elem_type: Some(1), // FLOAT
-                    shape: Some(TensorShapeProto {
+                    shape: Some(onnx_proto::TensorShapeProto {
                         dim: vec![
-                            tensor_shape_proto::Dimension {
-                                value: Some(tensor_shape_proto::dimension::Value::DimValue(1)),
+                            onnx_proto::tensor_shape_proto::Dimension {
+                                value: Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(1)),
                                 ..Default::default()
                             }
                         ],
@@ -122,15 +120,15 @@ mod tests {
         };
 
         // Output ValueInfo
-        let output = ValueInfoProto {
+        let output = onnx_proto::ValueInfoProto {
             name: Some("output".to_string()),
-            r#type: Some(TypeProto {
-                value: Some(type_proto::Value::TensorType(type_proto::Tensor {
+            r#type: Some(onnx_proto::TypeProto {
+                value: Some(onnx_proto::type_proto::Value::TensorType(onnx_proto::type_proto::Tensor {
                     elem_type: Some(1), // FLOAT
-                    shape: Some(TensorShapeProto {
+                    shape: Some(onnx_proto::TensorShapeProto {
                         dim: vec![
-                            tensor_shape_proto::Dimension {
-                                value: Some(tensor_shape_proto::dimension::Value::DimValue(1)),
+                            onnx_proto::tensor_shape_proto::Dimension {
+                                value: Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(1)),
                                 ..Default::default()
                             }
                         ],
@@ -144,7 +142,7 @@ mod tests {
         };
 
         // Identity node
-        let node = NodeProto {
+        let node = onnx_proto::NodeProto {
             input: vec!["input".to_string()],
             output: vec!["output".to_string()],
             name: Some("identity_node".to_string()),
@@ -155,7 +153,7 @@ mod tests {
         };
 
         // Graph
-        let graph = GraphProto {
+        let graph = onnx_proto::GraphProto {
             node: vec![node],
             name: Some("minimal_graph".to_string()),
             initializer: vec![],
@@ -167,9 +165,9 @@ mod tests {
         };
 
         // Model
-        ModelProto {
+        onnx_proto::ModelProto {
             ir_version: Some(8), // ONNX IR version
-            opset_import: vec![OperatorSetIdProto {
+            opset_import: vec![onnx_proto::OperatorSetIdProto {
                 domain: Some(String::new()),
                 version: Some(18), // opset version
                 ..Default::default()
