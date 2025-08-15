@@ -285,7 +285,7 @@ pub struct Node {
     /// Output tensor IDs  
     pub outputs: Vec<ValueId>,
     /// Node attributes
-    pub attributes: HashMap<String, AttrValue>,
+    pub attributes: HashMap<String, NodeAttrValue>,
 }
 
 /// Enumeration of all supported operation types
@@ -377,7 +377,7 @@ pub struct Graph {
 
 /// Attribute values that can be stored in nodes
 #[derive(Debug, Clone)]
-pub enum AttrValue {
+pub enum NodeAttrValue {
     Int(i64),
     Float(f64),
     String(String),
@@ -386,6 +386,76 @@ pub enum AttrValue {
     Ints(Vec<i64>),
     Floats(Vec<f64>),
     Strings(Vec<String>),
+}
+
+impl NodeAttrValue {
+    pub fn from_proto(attr_proto: &onnx_proto::AttributeProto) -> Result<Self, OnnxOptError> {
+        use onnx_proto::attribute_proto::AttributeType;
+        
+        let attr_type = attr_proto
+            .r#type
+            .and_then(|t| AttributeType::try_from(t).ok())
+            .unwrap_or(AttributeType::Undefined);
+        
+        match attr_type {
+            AttributeType::Float => attr_proto
+                .f
+                .map(|f| NodeAttrValue::Float(f as f64))
+                .ok_or_else(|| OnnxOptError::Conversion("Float attribute has no value".to_string())),
+                
+            AttributeType::Int => attr_proto
+                .i
+                .map(NodeAttrValue::Int)
+                .ok_or_else(|| OnnxOptError::Conversion("Int attribute has no value".to_string())),
+                
+            AttributeType::String => attr_proto
+                .s
+                .as_ref()
+                .ok_or_else(|| OnnxOptError::Conversion("String attribute has no value".to_string()))
+                .and_then(|bytes| {
+                    String::from_utf8(bytes.clone())
+                        .map(NodeAttrValue::String)
+                        .map_err(|e| OnnxOptError::Conversion(format!("Invalid UTF-8 in string attribute: {}", e)))
+                }),
+                
+            AttributeType::Tensor => attr_proto
+                .t
+                .as_ref()
+                .ok_or_else(|| OnnxOptError::Conversion("Tensor attribute has no value".to_string()))
+                .and_then(|tensor_proto| Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)),
+                
+            AttributeType::Floats => Ok(NodeAttrValue::Floats(
+                attr_proto.floats.iter().map(|&f| f as f64).collect()
+            )),
+            
+            AttributeType::Ints => Ok(NodeAttrValue::Ints(attr_proto.ints.clone())),
+            
+            AttributeType::Strings => attr_proto
+                .strings
+                .iter()
+                .map(|bytes| String::from_utf8(bytes.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map(NodeAttrValue::Strings)
+                .map_err(|e| OnnxOptError::Conversion(format!("Invalid UTF-8 in strings attribute: {}", e))),
+                
+            AttributeType::Graph => {
+                // For now, we'll represent graphs as empty NodeId vectors
+                // A more complete implementation would convert the GraphProto to NodeIds
+                Ok(NodeAttrValue::Graph(Vec::new()))
+            }
+            
+            AttributeType::Tensors => attr_proto
+                .tensors
+                .first()
+                .ok_or_else(|| OnnxOptError::Conversion("Tensors attribute has no values".to_string()))
+                .and_then(|tensor_proto| Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)),
+                
+            _ => Err(OnnxOptError::UnsupportedOp(format!(
+                "Unsupported attribute type: {:?}", 
+                attr_type
+            ))),
+        }
+    }
 }
 
 impl ArenaId for NodeId {
@@ -445,24 +515,13 @@ impl Tensor {
         })
     }
 
+    pub fn has_data(&self) -> bool {
+        self.data.is_some()
+    }
+
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
-    }
-
-    pub fn with_shape(mut self, shape: Vec<i64>) -> Self {
-        self.shape = Some(shape);
-        self
-    }
-
-    pub fn with_data(mut self, data: TensorData) -> Self {
-        self.data = Some(data);
-        self
-    }
-
-    /// Check if this tensor is a constant (has data)
-    pub fn is_constant(&self) -> bool {
-        self.data.is_some()
     }
 }
 
@@ -476,9 +535,8 @@ impl Node {
             attributes: HashMap::new(),
         }
     }
-
-    pub fn with_name(mut self, name: String) -> Self {
-        self.name = Some(name);
+    pub fn add_attribute(mut self, key: String, value: NodeAttrValue) -> Self {
+        self.attributes.insert(key, value);
         self
     }
 
@@ -492,29 +550,34 @@ impl Node {
         self
     }
 
-    pub fn add_attribute(mut self, key: String, value: AttrValue) -> Self {
-        self.attributes.insert(key, value);
-        self
-    }
-
     pub fn from_node_proto(node_proto: &onnx_proto::NodeProto) -> Result<Self, OnnxOptError> {
-        let op_kind = OpKind::from_onnx(
-            node_proto.op_type.as_ref()
-                .ok_or_else(|| OnnxOptError::InvalidModel("Node missing op_type".to_string()))?
-        );
+        let op_kind = node_proto
+            .op_type
+            .as_ref()
+            .map(|op_type| OpKind::from_onnx(op_type))
+            .ok_or_else(|| OnnxOptError::Conversion("Missing op_type in NodeProto".to_string()))?;
 
-        let mut node = Node::new(op_kind);
-        
-        if let Some(name) = &node_proto.name {
-            node = node.with_name(name.clone());
-        }
+        let attributes = node_proto
+            .attribute
+            .iter()
+            .map(|attr_proto| {
+                let name = attr_proto
+                    .name
+                    .as_ref()
+                    .ok_or_else(|| OnnxOptError::Conversion("Missing name in AttributeProto".to_string()))?;
+                
+                let value = NodeAttrValue::from_proto(attr_proto)?;
+                Ok((name.clone(), value))
+            })
+            .collect::<Result<HashMap<_, _>, OnnxOptError>>()?;
 
-        // Note: inputs and outputs will be set up during graph construction
-        // since we need to map string names to ValueIds
-        
-        // TODO: Parse attributes from node_proto.attribute
-        
-        Ok(node)
+        Ok(Self {
+            name: node_proto.name.clone(),
+            op_kind,
+            inputs: Vec::new(),
+            outputs: Vec::new(),
+            attributes,
+        })
     }
 }
 
@@ -852,8 +915,8 @@ mod tests {
     fn test_add_node_with_attributes() {
         let mut graph = Graph::new();
         let mut node = Node::new(OpKind::Conv);
-        node = node.add_attribute("kernel_shape".to_string(), AttrValue::Ints(vec![3, 3]));
-        node = node.add_attribute("strides".to_string(), AttrValue::Ints(vec![1, 1]));
+        node = node.add_attribute("kernel_shape".to_string(), NodeAttrValue::Ints(vec![3, 3]));
+        node = node.add_attribute("strides".to_string(), NodeAttrValue::Ints(vec![1, 1]));
 
         let node_id = graph.add_node(node);
 
