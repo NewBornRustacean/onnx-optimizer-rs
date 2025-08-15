@@ -1,9 +1,8 @@
 mod graph;
 mod utils;
 
-pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
-}
+// Re-export the proto crate for convenience
+pub use onnx_proto as proto;
 
 pub use graph::*;
 pub use utils::*;

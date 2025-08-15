@@ -1,6 +1,9 @@
 use crate::graph::traits::{GraphEdit, GraphView};
-use crate::proto;
 use crate::utils::arena::{Arena, ArenaId};
+use crate::utils::error::OnnxOptError;
+use crate::utils::io::FromLeBytes;
+use onnx_proto::{ModelProto, GraphProto, TensorProto};
+use onnx_proto::tensor_proto::DataType as ProtoType;
 use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::{AsRefStr, Display, EnumString};
@@ -41,6 +44,30 @@ pub enum DataType {
     String,
 }
 
+impl DataType {
+    pub fn from_proto_data_type(
+        proto_type: ProtoType,
+    ) -> Result<Self, OnnxOptError> {
+
+        match proto_type {
+            ProtoType::Float => Ok(DataType::Float32),
+            ProtoType::Double => Ok(DataType::Float64),
+            ProtoType::Int32 => Ok(DataType::Int32),
+            ProtoType::Int64 => Ok(DataType::Int64),
+            ProtoType::Uint32 => Ok(DataType::Uint32),
+            ProtoType::Uint64 => Ok(DataType::Uint64),
+            ProtoType::Int8 => Ok(DataType::Int8),
+            ProtoType::Uint8 => Ok(DataType::Uint8),
+            ProtoType::Bool => Ok(DataType::Bool),
+            ProtoType::String => Ok(DataType::String),
+            _ => Err(OnnxOptError::UnsupportedOp(format!(
+                "Unsupported data type: {:?}",
+                proto_type
+            ))),
+        }
+    }
+}
+
 /// Container for tensor constant data
 #[derive(Debug, Clone)]
 pub enum TensorData {
@@ -54,6 +81,196 @@ pub enum TensorData {
     Uint8(Vec<u8>),
     Bool(Vec<bool>),
     String(Vec<String>),
+}
+
+impl TensorData {
+    pub fn from_proto(tensor_proto: &TensorProto) -> Result<Option<Self>, OnnxOptError> {
+        let data_type = ProtoType::try_from(tensor_proto.data_type.unwrap_or(0))
+            .map_err(|_| OnnxOptError::Conversion("Invalid data type".to_string()))?;
+
+        // Check if tensor has any data
+        let has_data = !tensor_proto.float_data.is_empty()
+            || !tensor_proto.double_data.is_empty()
+            || !tensor_proto.int32_data.is_empty()
+            || !tensor_proto.int64_data.is_empty()
+            || !tensor_proto.uint64_data.is_empty()
+            || !tensor_proto.string_data.is_empty()
+            || tensor_proto.raw_data.as_ref().map_or(false, |data| !data.is_empty());
+
+        if !has_data {
+            return Ok(None);
+        }
+
+        match data_type {
+            ProtoType::Float => Self::extract_numeric_data(
+                &tensor_proto.float_data,
+                tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                TensorData::Float32,
+            ),
+            ProtoType::Double => Self::extract_numeric_data(
+                &tensor_proto.double_data,
+                tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                TensorData::Float64,
+            ),
+            ProtoType::Int32 => Self::extract_numeric_data(
+                &tensor_proto.int32_data,
+                tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                TensorData::Int32,
+            ),
+            ProtoType::Int64 => Self::extract_numeric_data(
+                &tensor_proto.int64_data,
+                tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                TensorData::Int64,
+            ),
+            ProtoType::Uint32 => {
+                // Special case: ONNX sometimes stores uint32 in uint64_data
+                if !tensor_proto.uint64_data.is_empty() {
+                    let uints: Result<Vec<u32>, _> =
+                        tensor_proto.uint64_data.iter().map(|&x| u32::try_from(x)).collect();
+                    match uints {
+                        Ok(data) => Ok(Some(TensorData::Uint32(data))),
+                        Err(_) => Err(OnnxOptError::Conversion(
+                            "Uint64 value too large for uint32".to_string(),
+                        )),
+                    }
+                } else {
+                    Self::extract_from_raw_data(
+                        tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                        TensorData::Uint32
+                    )
+                }
+            }
+            ProtoType::Uint64 => Self::extract_numeric_data(
+                &tensor_proto.uint64_data,
+                tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
+                TensorData::Uint64,
+            ),
+            ProtoType::Int8 => {
+                // Special case: ONNX stores int8 in int32_data or raw_data
+                if !tensor_proto.int32_data.is_empty() {
+                    let bytes: Result<Vec<i8>, _> =
+                        tensor_proto.int32_data.iter().map(|&x| i8::try_from(x)).collect();
+                    match bytes {
+                        Ok(data) => Ok(Some(TensorData::Int8(data))),
+                        Err(_) => Err(OnnxOptError::Conversion(
+                            "Int32 value out of range for int8".to_string(),
+                        )),
+                    }
+                } else if let Some(raw_data) = &tensor_proto.raw_data {
+                    if !raw_data.is_empty() {
+                        let bytes = raw_data.iter().map(|&b| b as i8).collect();
+                        Ok(Some(TensorData::Int8(bytes)))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            ProtoType::Uint8 => {
+                // Special case: ONNX stores uint8 in int32_data or raw_data
+                if !tensor_proto.int32_data.is_empty() {
+                    let bytes: Result<Vec<u8>, _> =
+                        tensor_proto.int32_data.iter().map(|&x| u8::try_from(x)).collect();
+                    match bytes {
+                        Ok(data) => Ok(Some(TensorData::Uint8(data))),
+                        Err(_) => Err(OnnxOptError::Conversion(
+                            "Int32 value out of range for uint8".to_string(),
+                        )),
+                    }
+                } else if let Some(raw_data) = &tensor_proto.raw_data {
+                    if !raw_data.is_empty() {
+                        Ok(Some(TensorData::Uint8(raw_data.clone())))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            ProtoType::Bool => {
+                if !tensor_proto.int32_data.is_empty() {
+                    let bools = tensor_proto.int32_data.iter().map(|&x| x != 0).collect();
+                    Ok(Some(TensorData::Bool(bools)))
+                } else if let Some(raw_data) = &tensor_proto.raw_data {
+                    if !raw_data.is_empty() {
+                        let bools = raw_data.iter().map(|&b| b != 0).collect();
+                        Ok(Some(TensorData::Bool(bools)))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            ProtoType::String => {
+                if !tensor_proto.string_data.is_empty() {
+                    let strings: Result<Vec<String>, _> = tensor_proto
+                        .string_data
+                        .iter()
+                        .map(|bytes| String::from_utf8(bytes.clone()))
+                        .collect();
+                    match strings {
+                        Ok(data) => Ok(Some(TensorData::String(data))),
+                        Err(e) => Err(OnnxOptError::Conversion(format!(
+                            "Invalid UTF-8 in string data: {}",
+                            e
+                        ))),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => Err(OnnxOptError::UnsupportedOp(format!(
+                "Unsupported data type for tensor data extraction: {:?}",
+                data_type
+            ))),
+        }
+    }
+
+    /// Generic helper for extracting numeric data from typed array or raw bytes
+    fn extract_numeric_data<T>(
+        typed_data: &[T],
+        raw_data: &[u8],
+        constructor: fn(Vec<T>) -> TensorData,
+    ) -> Result<Option<TensorData>, OnnxOptError>
+    where
+        T: Clone + FromLeBytes,
+    {
+        if !typed_data.is_empty() {
+            Ok(Some(constructor(typed_data.to_vec())))
+        } else if !raw_data.is_empty() {
+            Self::extract_from_raw_data(raw_data, constructor)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Generic helper for parsing raw byte data into typed arrays
+    fn extract_from_raw_data<T>(
+        raw_data: &[u8],
+        constructor: fn(Vec<T>) -> TensorData,
+    ) -> Result<Option<TensorData>, OnnxOptError>
+    where
+        T: FromLeBytes,
+    {
+        let type_size = std::mem::size_of::<T>();
+        if raw_data.len() % type_size != 0 {
+            return Err(OnnxOptError::Conversion(format!(
+                "Invalid raw data length for {}: expected multiple of {}, got {}",
+                std::any::type_name::<T>(),
+                type_size,
+                raw_data.len()
+            )));
+        }
+
+        let values = raw_data
+            .chunks_exact(type_size)
+            .map(|chunk| T::from_le_bytes(chunk))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Some(constructor(values)))
+    }
 }
 
 /// Represents a computation node in the graph
@@ -201,6 +418,33 @@ impl Tensor {
         }
     }
 
+    pub fn from_proto(tensor_proto: &TensorProto) -> Result<Self, OnnxOptError> {
+        // Convert proto data type to internal DataType
+        let proto_data_type = ProtoType::try_from(tensor_proto.data_type.unwrap_or(0))
+            .map_err(|_| OnnxOptError::Conversion("Invalid data type".to_string()))?;
+        let dtype = DataType::from_proto_data_type(proto_data_type)?;
+
+        // Extract shape from dims
+        let shape = if tensor_proto.dims.is_empty() {
+            None
+        } else {
+            Some(tensor_proto.dims.clone())
+        };
+
+        // Extract name
+        let name = tensor_proto.name.clone();
+
+        // Extract tensor data if present
+        let data = TensorData::from_proto(tensor_proto)?;
+
+        Ok(Self {
+            name,
+            shape,
+            dtype,
+            data,
+        })
+    }
+
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
@@ -252,6 +496,26 @@ impl Node {
         self.attributes.insert(key, value);
         self
     }
+
+    pub fn from_node_proto(node_proto: &onnx_proto::NodeProto) -> Result<Self, OnnxOptError> {
+        let op_kind = OpKind::from_onnx(
+            node_proto.op_type.as_ref()
+                .ok_or_else(|| OnnxOptError::InvalidModel("Node missing op_type".to_string()))?
+        );
+
+        let mut node = Node::new(op_kind);
+        
+        if let Some(name) = &node_proto.name {
+            node = node.with_name(name.clone());
+        }
+
+        // Note: inputs and outputs will be set up during graph construction
+        // since we need to map string names to ValueIds
+        
+        // TODO: Parse attributes from node_proto.attribute
+        
+        Ok(node)
+    }
 }
 
 impl Graph {
@@ -267,7 +531,7 @@ impl Graph {
         }
     }
 
-    pub fn from_model_proto(model: &proto::ModelProto) -> Result<Self, OnnxOptError> {
+    pub fn from_model_proto(model: &ModelProto) -> Result<Self, OnnxOptError> {
         let graph_proto = model
             .graph
             .as_ref()
@@ -275,12 +539,19 @@ impl Graph {
         Self::from_graph_proto(graph_proto)
     }
 
-    pub fn from_graph_proto(graph_proto: &proto::GraphProto) -> Result<Self, OnnxOptError> {
+    pub fn from_graph_proto(graph_proto: &GraphProto) -> Result<Self, OnnxOptError> {
         let mut graph = Self::new();
+        
+        // TODO: Process initializers, inputs, outputs, and value_info
+        // TODO: Build proper mapping from string names to ValueIds
+        // TODO: Set up node inputs/outputs with correct ValueIds
+        
         for node_proto in graph_proto.node.iter() {
             let node = Node::from_node_proto(node_proto)?;
             graph.add_node(node);
         }
+        
+        Ok(graph)
     }
 }
 

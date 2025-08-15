@@ -1,21 +1,92 @@
-use crate::utils::{error::OnnxOptError, proto};
+use crate::utils::error::OnnxOptError;
+use onnx_proto::ModelProto;
 use prost::Message;
 use std::{fs::File, io::{Read, Write}, path::Path};
 
 /// *.onnx → ModelProto
-pub fn load_model<P: AsRef<Path>>(path: P) -> Result<proto::ModelProto, OnnxOptError> {
+pub fn load_model<P: AsRef<Path>>(path: P) -> Result<ModelProto, OnnxOptError> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
-    Ok(proto::ModelProto::decode(&*buf)?)
+    Ok(ModelProto::decode(&*buf)?)
 }
 
 /// ModelProto → *.onnx
-pub fn save_model<P: AsRef<Path>>(model: &proto::ModelProto, path: P) -> Result<(), OnnxOptError> {
+pub fn save_model<P: AsRef<Path>>(model: &ModelProto, path: P) -> Result<(), OnnxOptError> {
     let mut buf = Vec::new();
     model.encode(&mut buf)?;
     File::create(path)?.write_all(&buf)?;
     Ok(())
 }
+
+
+/// Trait for types that can be constructed from little-endian bytes
+pub trait FromLeBytes: Sized {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError>;
+}
+
+impl FromLeBytes for f32 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 4 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for f32".to_string()));
+        }
+        Ok(f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+}
+
+impl FromLeBytes for f64 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 8 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for f64".to_string()));
+        }
+        let array: [u8; 8] = bytes.try_into().map_err(|_| {
+            OnnxOptError::Conversion("Failed to convert bytes to array for f64".to_string())
+        })?;
+        Ok(f64::from_le_bytes(array))
+    }
+}
+
+impl FromLeBytes for i32 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 4 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for i32".to_string()));
+        }
+        Ok(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+}
+
+impl FromLeBytes for i64 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 8 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for i64".to_string()));
+        }
+        let array: [u8; 8] = bytes.try_into().map_err(|_| {
+            OnnxOptError::Conversion("Failed to convert bytes to array for i64".to_string())
+        })?;
+        Ok(i64::from_le_bytes(array))
+    }
+}
+
+impl FromLeBytes for u32 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 4 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for u32".to_string()));
+        }
+        Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+}
+
+impl FromLeBytes for u64 {
+    fn from_le_bytes(bytes: &[u8]) -> Result<Self, OnnxOptError> {
+        if bytes.len() != 8 {
+            return Err(OnnxOptError::Conversion("Invalid byte length for u64".to_string()));
+        }
+        let array: [u8; 8] = bytes.try_into().map_err(|_| {
+            OnnxOptError::Conversion("Failed to convert bytes to array for u64".to_string())
+        })?;
+        Ok(u64::from_le_bytes(array))
+    }
+}
+
 
 
 #[cfg(test)]
