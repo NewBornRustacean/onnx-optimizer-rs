@@ -10,4 +10,13 @@ pub enum OnnxOptError {
     
     #[error("Encode error: {0}")]
     Encode(#[from] prost::EncodeError),
+    
+    #[error("Invalid model: {0}")]
+    InvalidModel(String),
+    
+    #[error("Conversion error: {0}")]
+    Conversion(String),
+    
+    #[error("Unsupported operation: {0}")]
+    UnsupportedOp(String),
 }

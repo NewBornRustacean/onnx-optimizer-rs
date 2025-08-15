@@ -6,9 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Use system `protoc` found in PATH
     let mut config = prost_build::Config::new();
-    config.compile_protos(&[proto_file], &["third_party"]) ?;
+    config.compile_protos(&[proto_file], &["third_party"])?;
 
     Ok(())
 }
-
-

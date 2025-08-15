@@ -1,9 +1,9 @@
+use crate::graph::traits::{GraphEdit, GraphView};
+use crate::proto;
+use crate::utils::arena::{Arena, ArenaId};
 use std::collections::HashMap;
 use std::str::FromStr;
-use crate::proto;
 use strum_macros::{AsRefStr, Display, EnumString};
-use crate::utils::arena::{Arena, ArenaId};
-use crate::graph::traits::{GraphView, GraphEdit};
 
 /// Stable identifier for nodes in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -80,50 +80,50 @@ pub enum OpKind {
     Sub,
     Mul,
     Div,
-    
+
     // Neural network layers
     Conv,
     BatchNormalization,
     Relu,
     Sigmoid,
     Tanh,
-    
+
     // Shape operations
     Reshape,
     Transpose,
     Concat,
     Split,
-    
+
     // Pooling operations
     MaxPool,
     AveragePool,
     GlobalAveragePool,
-    
+
     // Matrix operations
     MatMul,
     Gemm,
-    
+
     // Utility operations
     Identity,
     Dropout,
     Constant,
-    
+
     // Reduction operations
     ReduceSum,
     ReduceMean,
     ReduceMax,
     ReduceMin,
-    
+
     // Logical operations
     And,
     Or,
     Not,
-    
+
     // Comparison operations
     Equal,
     Greater,
     Less,
-    
+
     // Custom or unknown operations
     #[strum(disabled)]
     Unknown(String),
@@ -131,7 +131,6 @@ pub enum OpKind {
 
 impl OpKind {
     pub fn from_onnx(op: &str) -> Self {
-        
         match OpKind::from_str(op) {
             Ok(k) => k,
             Err(_) => OpKind::Unknown(op.to_string()),
@@ -186,7 +185,7 @@ impl ArenaId for ValueId {
     fn from_u32(id: u32) -> Self {
         ValueId(id)
     }
-    
+
     fn into_u32(self) -> u32 {
         self.0
     }
@@ -201,22 +200,22 @@ impl Tensor {
             data: None,
         }
     }
-    
+
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
-    
+
     pub fn with_shape(mut self, shape: Vec<i64>) -> Self {
         self.shape = Some(shape);
         self
     }
-    
+
     pub fn with_data(mut self, data: TensorData) -> Self {
         self.data = Some(data);
         self
     }
-    
+
     /// Check if this tensor is a constant (has data)
     pub fn is_constant(&self) -> bool {
         self.data.is_some()
@@ -233,28 +232,27 @@ impl Node {
             attributes: HashMap::new(),
         }
     }
-    
+
     pub fn with_name(mut self, name: String) -> Self {
         self.name = Some(name);
         self
     }
-    
+
     pub fn with_inputs(mut self, inputs: Vec<ValueId>) -> Self {
         self.inputs = inputs;
         self
     }
-    
+
     pub fn with_outputs(mut self, outputs: Vec<ValueId>) -> Self {
         self.outputs = outputs;
         self
     }
-    
+
     pub fn add_attribute(mut self, key: String, value: AttrValue) -> Self {
         self.attributes.insert(key, value);
         self
     }
 }
-
 
 impl Graph {
     pub fn new() -> Self {
@@ -268,8 +266,23 @@ impl Graph {
             graph_output_values: Vec::new(),
         }
     }
-}
 
+    pub fn from_model_proto(model: &proto::ModelProto) -> Result<Self, OnnxOptError> {
+        let graph_proto = model
+            .graph
+            .as_ref()
+            .ok_or(OnnxOptError::InvalidModel("Model has no graph".to_string()))?;
+        Self::from_graph_proto(graph_proto)
+    }
+
+    pub fn from_graph_proto(graph_proto: &proto::GraphProto) -> Result<Self, OnnxOptError> {
+        let mut graph = Self::new();
+        for node_proto in graph_proto.node.iter() {
+            let node = Node::from_node_proto(node_proto)?;
+            graph.add_node(node);
+        }
+    }
+}
 
 impl GraphView for Graph {
     fn node(&self, id: NodeId) -> Option<&Node> {
@@ -281,17 +294,11 @@ impl GraphView for Graph {
     }
 
     fn inputs(&self, node: NodeId) -> &[ValueId] {
-        self.nodes
-            .get(node)
-            .map(|n| n.inputs.as_slice())
-            .unwrap_or(&[])
+        self.nodes.get(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
     }
 
     fn outputs(&self, node: NodeId) -> &[ValueId] {
-        self.nodes
-            .get(node)
-            .map(|n| n.outputs.as_slice())
-            .unwrap_or(&[])
+        self.nodes.get(node).map(|n| n.outputs.as_slice()).unwrap_or(&[])
     }
 
     fn producer(&self, value: ValueId) -> Option<NodeId> {
@@ -299,11 +306,7 @@ impl GraphView for Graph {
     }
 
     fn consumers(&self, value: ValueId) -> &[NodeId] {
-        self
-            .value_consumers
-            .get(&value)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+        self.value_consumers.get(&value).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
     fn graph_inputs(&self) -> &[ValueId] {
@@ -313,7 +316,6 @@ impl GraphView for Graph {
     fn graph_outputs(&self) -> &[ValueId] {
         self.graph_output_values.as_slice()
     }
- 
 }
 
 impl GraphEdit for Graph {
@@ -321,16 +323,12 @@ impl GraphEdit for Graph {
         let node_id = self.nodes.alloc(node);
         if let Some(n) = self.nodes.get(node_id) {
             // Register producers for each output
-            self.value_producer.extend(
-                n.outputs.iter().map(|&value_id| (value_id, node_id))
-            );
-            
+            self.value_producer
+                .extend(n.outputs.iter().map(|&value_id| (value_id, node_id)));
+
             // Register consumers for each input
             n.inputs.iter().for_each(|&value_id| {
-                self.value_consumers
-                    .entry(value_id)
-                    .or_default()
-                    .push(node_id);
+                self.value_consumers.entry(value_id).or_default().push(node_id);
             });
         }
         // Invalidate cached topology if present
@@ -373,22 +371,22 @@ impl GraphEdit for Graph {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::traits::{GraphView, GraphEdit};
+    use crate::graph::traits::{GraphEdit, GraphView};
 
     // Test utilities for creating reusable objects
     fn create_test_tensor(name: &str) -> Tensor {
         Tensor::new(DataType::Float32).with_name(name.to_string())
     }
 
-    fn create_test_node_with_io(op_kind: OpKind, inputs: Vec<ValueId>, outputs: Vec<ValueId>) -> Node {
-        Node::new(op_kind)
-            .with_inputs(inputs)
-            .with_outputs(outputs)
+    fn create_test_node_with_io(
+        op_kind: OpKind,
+        inputs: Vec<ValueId>,
+        outputs: Vec<ValueId>,
+    ) -> Node {
+        Node::new(op_kind).with_inputs(inputs).with_outputs(outputs)
     }
 
     fn create_test_graph_with_values() -> (Graph, Vec<ValueId>) {
@@ -449,9 +447,9 @@ mod tests {
     fn test_add_node_basic() {
         let mut graph = Graph::new();
         let node = Node::new(OpKind::Add);
-        
+
         let node_id = graph.add_node(node);
-        
+
         // Verify the node was added
         assert!(graph.node(node_id).is_some());
         assert_eq!(graph.node(node_id).unwrap().op_kind, OpKind::Add);
@@ -462,10 +460,10 @@ mod tests {
         let (mut graph, value_ids) = create_test_graph_with_values();
         let inputs = vec![value_ids[0], value_ids[1]];
         let outputs = vec![value_ids[2]];
-        
+
         let node = create_test_node_with_io(OpKind::Add, inputs.clone(), outputs.clone());
         let node_id = graph.add_node(node);
-        
+
         // Verify node was added with correct inputs/outputs
         let added_node = graph.node(node_id).unwrap();
         assert_eq!(added_node.inputs, inputs);
@@ -476,10 +474,10 @@ mod tests {
     fn test_add_node_producer_registration() {
         let (mut graph, value_ids) = create_test_graph_with_values();
         let outputs = vec![value_ids[0], value_ids[1]];
-        
+
         let node = create_test_node_with_io(OpKind::Relu, vec![], outputs.clone());
         let node_id = graph.add_node(node);
-        
+
         // Verify all outputs are registered as produced by this node
         for &output_id in &outputs {
             assert_eq!(graph.producer(output_id), Some(node_id));
@@ -490,10 +488,10 @@ mod tests {
     fn test_add_node_consumer_registration() {
         let (mut graph, value_ids) = create_test_graph_with_values();
         let inputs = vec![value_ids[0], value_ids[1], value_ids[2]];
-        
+
         let node = create_test_node_with_io(OpKind::Concat, inputs.clone(), vec![]);
         let node_id = graph.add_node(node);
-        
+
         // Verify all inputs are registered as consumed by this node
         for &input_id in &inputs {
             assert!(graph.consumers(input_id).contains(&node_id));
@@ -504,15 +502,15 @@ mod tests {
     fn test_add_node_multiple_consumers() {
         let (mut graph, value_ids) = create_test_graph_with_values();
         let shared_input = value_ids[0];
-        
+
         // Add first node that consumes the value
         let node1 = create_test_node_with_io(OpKind::Relu, vec![shared_input], vec![]);
         let node_id1 = graph.add_node(node1);
-        
+
         // Add second node that also consumes the same value
         let node2 = create_test_node_with_io(OpKind::Sigmoid, vec![shared_input], vec![]);
         let node_id2 = graph.add_node(node2);
-        
+
         // Verify both nodes are registered as consumers
         let consumers = graph.consumers(shared_input);
         assert_eq!(consumers.len(), 2);
@@ -523,13 +521,13 @@ mod tests {
     #[test]
     fn test_add_node_topology_cache_invalidation() {
         let mut graph = Graph::new();
-        
+
         // Set up a fake topology cache
         graph.topo_cache = Some(vec![]);
-        
+
         let node = Node::new(OpKind::Identity);
         graph.add_node(node);
-        
+
         // Verify topology cache was invalidated
         assert!(graph.topo_cache.is_none());
     }
@@ -538,9 +536,9 @@ mod tests {
     fn test_add_node_no_inputs_or_outputs() {
         let mut graph = Graph::new();
         let node = Node::new(OpKind::Constant);
-        
+
         let node_id = graph.add_node(node);
-        
+
         // Verify node was added successfully even with no inputs/outputs
         let added_node = graph.node(node_id).unwrap();
         assert!(added_node.inputs.is_empty());
@@ -551,33 +549,27 @@ mod tests {
     #[test]
     fn test_add_node_complex_graph() {
         let (mut graph, value_ids) = create_test_graph_with_values();
-        
+
         // Create a small computation graph: Add -> Relu -> MatMul
         let add_node = create_test_node_with_io(
-            OpKind::Add, 
-            vec![value_ids[0], value_ids[1]], 
-            vec![value_ids[2]]
+            OpKind::Add,
+            vec![value_ids[0], value_ids[1]],
+            vec![value_ids[2]],
         );
         let add_id = graph.add_node(add_node);
-        
-        let relu_node = create_test_node_with_io(
-            OpKind::Relu, 
-            vec![value_ids[2]], 
-            vec![value_ids[3]]
-        );
+
+        let relu_node =
+            create_test_node_with_io(OpKind::Relu, vec![value_ids[2]], vec![value_ids[3]]);
         let relu_id = graph.add_node(relu_node);
-        
-        let matmul_node = create_test_node_with_io(
-            OpKind::MatMul, 
-            vec![value_ids[3], value_ids[4]], 
-            vec![]
-        );
+
+        let matmul_node =
+            create_test_node_with_io(OpKind::MatMul, vec![value_ids[3], value_ids[4]], vec![]);
         let matmul_id = graph.add_node(matmul_node);
-        
+
         // Verify the graph structure
         assert_eq!(graph.producer(value_ids[2]), Some(add_id));
         assert_eq!(graph.producer(value_ids[3]), Some(relu_id));
-        
+
         assert!(graph.consumers(value_ids[0]).contains(&add_id));
         assert!(graph.consumers(value_ids[1]).contains(&add_id));
         assert!(graph.consumers(value_ids[2]).contains(&relu_id));
@@ -591,9 +583,9 @@ mod tests {
         let mut node = Node::new(OpKind::Conv);
         node = node.add_attribute("kernel_shape".to_string(), AttrValue::Ints(vec![3, 3]));
         node = node.add_attribute("strides".to_string(), AttrValue::Ints(vec![1, 1]));
-        
+
         let node_id = graph.add_node(node);
-        
+
         // Verify node with attributes was added correctly
         let added_node = graph.node(node_id).unwrap();
         assert_eq!(added_node.op_kind, OpKind::Conv);

@@ -1,9 +1,9 @@
-use crate::graph::objects::{Node, Tensor, NodeId, ValueId};
+use crate::graph::objects::{Node, NodeId, Tensor, ValueId};
 
 pub trait GraphView {
     fn node(&self, id: NodeId) -> Option<&Node>;
     fn tensor(&self, id: ValueId) -> Option<&Tensor>;
-    
+
     fn inputs(&self, node: NodeId) -> &[ValueId];
     fn outputs(&self, node: NodeId) -> &[ValueId];
 
@@ -12,7 +12,6 @@ pub trait GraphView {
 
     fn graph_inputs(&self) -> &[ValueId];
     fn graph_outputs(&self) -> &[ValueId];
-
 }
 
 pub trait GraphEdit: GraphView {
