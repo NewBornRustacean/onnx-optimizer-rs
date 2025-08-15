@@ -268,7 +268,6 @@ impl Graph {
             graph_output_values: Vec::new(),
         }
     }
-
 }
 
 
@@ -322,17 +321,17 @@ impl GraphEdit for Graph {
         let node_id = self.nodes.alloc(node);
         if let Some(n) = self.nodes.get(node_id) {
             // Register producers for each output
-            for &value_id in &n.outputs {
-                self.value_producer.insert(value_id, node_id);
-            }
+            self.value_producer.extend(
+                n.outputs.iter().map(|&value_id| (value_id, node_id))
+            );
+            
             // Register consumers for each input
-            for &value_id in &n.inputs {
-                self
-                    .value_consumers
+            n.inputs.iter().for_each(|&value_id| {
+                self.value_consumers
                     .entry(value_id)
                     .or_default()
                     .push(node_id);
-            }
+            });
         }
         // Invalidate cached topology if present
         self.topo_cache = None;
@@ -378,7 +377,27 @@ impl GraphEdit for Graph {
 
 #[cfg(test)]
 mod tests {
-    use super::OpKind;
+    use super::*;
+    use crate::graph::traits::{GraphView, GraphEdit};
+
+    // Test utilities for creating reusable objects
+    fn create_test_tensor(name: &str) -> Tensor {
+        Tensor::new(DataType::Float32).with_name(name.to_string())
+    }
+
+    fn create_test_node_with_io(op_kind: OpKind, inputs: Vec<ValueId>, outputs: Vec<ValueId>) -> Node {
+        Node::new(op_kind)
+            .with_inputs(inputs)
+            .with_outputs(outputs)
+    }
+
+    fn create_test_graph_with_values() -> (Graph, Vec<ValueId>) {
+        let mut graph = Graph::new();
+        let value_ids = (0..5)
+            .map(|i| graph.add_value(create_test_tensor(&format!("tensor_{}", i))))
+            .collect();
+        (graph, value_ids)
+    }
 
     #[test]
     fn test_from_onnx_known_ops() {
@@ -423,5 +442,163 @@ mod tests {
             let back = OpKind::from_onnx(s);
             assert_eq!(&back, k, "roundtrip failed for {}", s);
         }
+    }
+
+    // Tests for add_node function
+    #[test]
+    fn test_add_node_basic() {
+        let mut graph = Graph::new();
+        let node = Node::new(OpKind::Add);
+        
+        let node_id = graph.add_node(node);
+        
+        // Verify the node was added
+        assert!(graph.node(node_id).is_some());
+        assert_eq!(graph.node(node_id).unwrap().op_kind, OpKind::Add);
+    }
+
+    #[test]
+    fn test_add_node_with_inputs_and_outputs() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        let inputs = vec![value_ids[0], value_ids[1]];
+        let outputs = vec![value_ids[2]];
+        
+        let node = create_test_node_with_io(OpKind::Add, inputs.clone(), outputs.clone());
+        let node_id = graph.add_node(node);
+        
+        // Verify node was added with correct inputs/outputs
+        let added_node = graph.node(node_id).unwrap();
+        assert_eq!(added_node.inputs, inputs);
+        assert_eq!(added_node.outputs, outputs);
+    }
+
+    #[test]
+    fn test_add_node_producer_registration() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        let outputs = vec![value_ids[0], value_ids[1]];
+        
+        let node = create_test_node_with_io(OpKind::Relu, vec![], outputs.clone());
+        let node_id = graph.add_node(node);
+        
+        // Verify all outputs are registered as produced by this node
+        for &output_id in &outputs {
+            assert_eq!(graph.producer(output_id), Some(node_id));
+        }
+    }
+
+    #[test]
+    fn test_add_node_consumer_registration() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        let inputs = vec![value_ids[0], value_ids[1], value_ids[2]];
+        
+        let node = create_test_node_with_io(OpKind::Concat, inputs.clone(), vec![]);
+        let node_id = graph.add_node(node);
+        
+        // Verify all inputs are registered as consumed by this node
+        for &input_id in &inputs {
+            assert!(graph.consumers(input_id).contains(&node_id));
+        }
+    }
+
+    #[test]
+    fn test_add_node_multiple_consumers() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        let shared_input = value_ids[0];
+        
+        // Add first node that consumes the value
+        let node1 = create_test_node_with_io(OpKind::Relu, vec![shared_input], vec![]);
+        let node_id1 = graph.add_node(node1);
+        
+        // Add second node that also consumes the same value
+        let node2 = create_test_node_with_io(OpKind::Sigmoid, vec![shared_input], vec![]);
+        let node_id2 = graph.add_node(node2);
+        
+        // Verify both nodes are registered as consumers
+        let consumers = graph.consumers(shared_input);
+        assert_eq!(consumers.len(), 2);
+        assert!(consumers.contains(&node_id1));
+        assert!(consumers.contains(&node_id2));
+    }
+
+    #[test]
+    fn test_add_node_topology_cache_invalidation() {
+        let mut graph = Graph::new();
+        
+        // Set up a fake topology cache
+        graph.topo_cache = Some(vec![]);
+        
+        let node = Node::new(OpKind::Identity);
+        graph.add_node(node);
+        
+        // Verify topology cache was invalidated
+        assert!(graph.topo_cache.is_none());
+    }
+
+    #[test]
+    fn test_add_node_no_inputs_or_outputs() {
+        let mut graph = Graph::new();
+        let node = Node::new(OpKind::Constant);
+        
+        let node_id = graph.add_node(node);
+        
+        // Verify node was added successfully even with no inputs/outputs
+        let added_node = graph.node(node_id).unwrap();
+        assert!(added_node.inputs.is_empty());
+        assert!(added_node.outputs.is_empty());
+        assert_eq!(added_node.op_kind, OpKind::Constant);
+    }
+
+    #[test]
+    fn test_add_node_complex_graph() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        
+        // Create a small computation graph: Add -> Relu -> MatMul
+        let add_node = create_test_node_with_io(
+            OpKind::Add, 
+            vec![value_ids[0], value_ids[1]], 
+            vec![value_ids[2]]
+        );
+        let add_id = graph.add_node(add_node);
+        
+        let relu_node = create_test_node_with_io(
+            OpKind::Relu, 
+            vec![value_ids[2]], 
+            vec![value_ids[3]]
+        );
+        let relu_id = graph.add_node(relu_node);
+        
+        let matmul_node = create_test_node_with_io(
+            OpKind::MatMul, 
+            vec![value_ids[3], value_ids[4]], 
+            vec![]
+        );
+        let matmul_id = graph.add_node(matmul_node);
+        
+        // Verify the graph structure
+        assert_eq!(graph.producer(value_ids[2]), Some(add_id));
+        assert_eq!(graph.producer(value_ids[3]), Some(relu_id));
+        
+        assert!(graph.consumers(value_ids[0]).contains(&add_id));
+        assert!(graph.consumers(value_ids[1]).contains(&add_id));
+        assert!(graph.consumers(value_ids[2]).contains(&relu_id));
+        assert!(graph.consumers(value_ids[3]).contains(&matmul_id));
+        assert!(graph.consumers(value_ids[4]).contains(&matmul_id));
+    }
+
+    #[test]
+    fn test_add_node_with_attributes() {
+        let mut graph = Graph::new();
+        let mut node = Node::new(OpKind::Conv);
+        node = node.add_attribute("kernel_shape".to_string(), AttrValue::Ints(vec![3, 3]));
+        node = node.add_attribute("strides".to_string(), AttrValue::Ints(vec![1, 1]));
+        
+        let node_id = graph.add_node(node);
+        
+        // Verify node with attributes was added correctly
+        let added_node = graph.node(node_id).unwrap();
+        assert_eq!(added_node.op_kind, OpKind::Conv);
+        assert_eq!(added_node.attributes.len(), 2);
+        assert!(added_node.attributes.contains_key("kernel_shape"));
+        assert!(added_node.attributes.contains_key("strides"));
     }
 }
