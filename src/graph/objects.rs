@@ -523,6 +523,51 @@ impl Tensor {
         self.name = Some(name);
         self
     }
+
+    /// Create a Tensor from ValueInfoProto (used for graph inputs/outputs/value_info)
+    pub fn from_value_info_proto(value_info: &onnx_proto::ValueInfoProto) -> Result<Self, OnnxOptError> {
+        let name = value_info.name.clone();
+        
+        let (dtype, shape) = value_info
+            .r#type
+            .as_ref()
+            .and_then(|type_proto| type_proto.value.as_ref())
+            .and_then(|value| match value {
+                onnx_proto::type_proto::Value::TensorType(tensor_type) => {
+                    let elem_type = tensor_type.elem_type?;
+                    let proto_type = onnx_proto::tensor_proto::DataType::try_from(elem_type).ok()?;
+                    let dtype = DataType::from_proto_data_type(proto_type).ok()?;
+                    
+                    let shape = tensor_type
+                        .shape
+                        .as_ref()
+                        .map(|shape_proto| {
+                            shape_proto
+                                .dim
+                                .iter()
+                                .filter_map(|dim| {
+                                    dim.value.as_ref().and_then(|v| match v {
+                                        onnx_proto::tensor_shape_proto::dimension::Value::DimValue(val) => Some(*val),
+                                        _ => None, // Skip symbolic dimensions for now
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|v| !v.is_empty());
+                    
+                    Some((dtype, shape))
+                }
+                _ => None, // Only handle tensor types for now
+            })
+            .unwrap_or((DataType::Float32, None)); // Default fallback
+
+        Ok(Self {
+            name,
+            shape,
+            dtype,
+            data: None, // Value info doesn't contain actual data
+        })
+    }
 }
 
 impl Node {
@@ -604,16 +649,99 @@ impl Graph {
 
     pub fn from_graph_proto(graph_proto: &GraphProto) -> Result<Self, OnnxOptError> {
         let mut graph = Self::new();
+        let mut name_to_value_id = HashMap::new();
+
+        // Step 1: Process initializers (constant tensors with data)
+        let initializer_mappings: Vec<(String, ValueId)> = graph_proto
+            .initializer
+            .iter()
+            .map(|tensor_proto| {
+                let tensor = Tensor::from_proto(tensor_proto)?;
+                let name = tensor.name.clone().unwrap_or_default();
+                let value_id = graph.add_value(tensor);
+                Ok((name, value_id))
+            })
+            .collect::<Result<Vec<_>, OnnxOptError>>()?;
         
-        // TODO: Process initializers, inputs, outputs, and value_info
-        // TODO: Build proper mapping from string names to ValueIds
-        // TODO: Set up node inputs/outputs with correct ValueIds
+        name_to_value_id.extend(initializer_mappings);
+
+        // Step 2: Process graph inputs (create tensors from ValueInfoProto)
+        let input_mappings: Vec<(String, ValueId)> = graph_proto
+            .input
+            .iter()
+            .map(|value_info| {
+                let tensor = Tensor::from_value_info_proto(value_info)?;
+                let name = tensor.name.clone().unwrap_or_default();
+                let value_id = graph.add_value(tensor);
+                Ok((name, value_id))
+            })
+            .collect::<Result<Vec<_>, OnnxOptError>>()?;
         
-        for node_proto in graph_proto.node.iter() {
-            let node = Node::from_node_proto(node_proto)?;
+        graph.graph_input_values = input_mappings.iter().map(|(_, value_id)| *value_id).collect();
+        name_to_value_id.extend(input_mappings);
+
+        // Step 3: Process graph outputs (create tensors from ValueInfoProto)
+        let output_mappings: Vec<(String, ValueId)> = graph_proto
+            .output
+            .iter()
+            .map(|value_info| {
+                let tensor = Tensor::from_value_info_proto(value_info)?;
+                let name = tensor.name.clone().unwrap_or_default();
+                let value_id = graph.add_value(tensor);
+                Ok((name, value_id))
+            })
+            .collect::<Result<Vec<_>, OnnxOptError>>()?;
+        
+        graph.graph_output_values = output_mappings.iter().map(|(_, value_id)| *value_id).collect();
+        name_to_value_id.extend(output_mappings);
+
+        // Step 4: Process intermediate value_info (if not already processed)
+        for value_info in &graph_proto.value_info {
+            let name = value_info.name.clone().unwrap_or_default();
+            if !name_to_value_id.contains_key(&name) {
+                let tensor = Tensor::from_value_info_proto(value_info)?;
+                let value_id = graph.add_value(tensor);
+                name_to_value_id.insert(name, value_id);
+            }
+        }
+
+        // Step 5: Process nodes and resolve input/output ValueIds
+        for node_proto in &graph_proto.node {
+            let mut node = Node::from_node_proto(node_proto)?;
+            
+            // Resolve input names to ValueIds
+            node.inputs = node_proto
+                .input
+                .iter()
+                .filter_map(|input_name| {
+                    name_to_value_id.get(input_name).copied().or_else(|| {
+                        // Create a placeholder tensor for unknown inputs
+                        let tensor = Tensor::new(DataType::Float32).with_name(input_name.clone());
+                        let value_id = graph.add_value(tensor);
+                        name_to_value_id.insert(input_name.clone(), value_id);
+                        Some(value_id)
+                    })
+                })
+                .collect();
+            
+            // Resolve output names to ValueIds
+            node.outputs = node_proto
+                .output
+                .iter()
+                .filter_map(|output_name| {
+                    name_to_value_id.get(output_name).copied().or_else(|| {
+                        // Create a placeholder tensor for unknown outputs
+                        let tensor = Tensor::new(DataType::Float32).with_name(output_name.clone());
+                        let value_id = graph.add_value(tensor);
+                        name_to_value_id.insert(output_name.clone(), value_id);
+                        Some(value_id)
+                    })
+                })
+                .collect();
+            
             graph.add_node(node);
         }
-        
+
         Ok(graph)
     }
 }

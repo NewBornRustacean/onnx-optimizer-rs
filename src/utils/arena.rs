@@ -113,6 +113,20 @@ impl<T, ID: ArenaId> Arena<T, ID> {
             inner: self.items.iter_mut().enumerate(),
         }
     }
+
+    /// Returns an iterator over all valid IDs in the arena
+    pub fn ids(&self) -> impl Iterator<Item = ID> + '_ {
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, slot)| {
+                if slot.is_some() {
+                    Some(ID::from_u32(idx as u32))
+                } else {
+                    None
+                }
+            })
+    }
 }
 
 pub struct ArenaIter<'a, T> {
