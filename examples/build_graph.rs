@@ -60,8 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let graph = Graph::from_model_proto(&model_proto)?;
     
     println!("Graph built successfully!");
-    println!("   Internal nodes: {}", graph.nodes.len());
-    println!("   Internal values: {}", graph.values.len());
+    println!("   Internal nodes: {}", graph.node_count());
+    println!("   Internal values: {}", graph.value_count());
     println!("   Graph inputs: {}", graph.graph_inputs().len());
     println!("   Graph outputs: {}", graph.graph_outputs().len());
 
@@ -98,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show some node types
     let mut op_counts = std::collections::HashMap::new();
-    for node_id in graph.nodes.ids() {
+    for node_id in graph.node_indices() {
         if let Some(node) = graph.node(node_id) {
             *op_counts.entry(node.op_kind.as_onnx_str()).or_insert(0) += 1;
         }

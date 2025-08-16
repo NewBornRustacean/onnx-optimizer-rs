@@ -1,16 +1,15 @@
 use crate::graph::traits::{GraphEdit, GraphView};
-use crate::utils::arena::{Arena, ArenaId};
 use crate::utils::error::OnnxOptError;
 use crate::utils::io::FromLeBytes;
 use onnx_proto::{ModelProto, GraphProto, TensorProto};
 use onnx_proto::tensor_proto::DataType as ProtoType;
+use petgraph::stable_graph::{StableGraph, NodeIndex};
 use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::{AsRefStr, Display, EnumString};
 
-/// Stable identifier for nodes in the graph
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(pub u32);
+/// Node identifier using petgraph's NodeIndex directly
+pub type NodeId = NodeIndex;
 
 /// Stable identifier for values (tensors) in the graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -363,16 +362,18 @@ impl OpKind {
 }
 #[derive(Debug)]
 pub struct Graph {
-    pub nodes: Arena<Node, NodeId>,
-    pub values: Arena<Tensor, ValueId>,
-    pub topo_cache: Option<Vec<NodeId>>,
-    // Maps each value to its producing node
-    value_producer: HashMap<ValueId, NodeId>,
-    // Maps each value to the list of consuming nodes
-    value_consumers: HashMap<ValueId, Vec<NodeId>>,
-    // Graph-level IO value ids (optional; empty by default)
+    /// Core petgraph structure - stores nodes with dependency edges
+    graph: StableGraph<Node, ()>,
+    
+    /// Value/tensor storage
+    values: HashMap<ValueId, Tensor>,
+    
+    /// Graph-level metadata
     graph_input_values: Vec<ValueId>,
     graph_output_values: Vec<ValueId>,
+    
+    /// Value ID generator (NodeId is managed by petgraph)
+    next_value_id: u32,
 }
 
 /// Attribute values that can be stored in nodes
@@ -458,25 +459,7 @@ impl NodeAttrValue {
     }
 }
 
-impl ArenaId for NodeId {
-    fn from_u32(id: u32) -> Self {
-        NodeId(id)
-    }
 
-    fn into_u32(self) -> u32 {
-        self.0
-    }
-}
-
-impl ArenaId for ValueId {
-    fn from_u32(id: u32) -> Self {
-        ValueId(id)
-    }
-
-    fn into_u32(self) -> u32 {
-        self.0
-    }
-}
 
 impl Tensor {
     pub fn new(dtype: DataType) -> Self {
@@ -629,13 +612,11 @@ impl Node {
 impl Graph {
     pub fn new() -> Self {
         Self {
-            nodes: Arena::new(),
-            values: Arena::new(),
-            topo_cache: None,
-            value_producer: HashMap::new(),
-            value_consumers: HashMap::new(),
+            graph: StableGraph::new(),
+            values: HashMap::new(),
             graph_input_values: Vec::new(),
             graph_output_values: Vec::new(),
+            next_value_id: 0,
         }
     }
 
@@ -744,92 +725,118 @@ impl Graph {
 
         Ok(graph)
     }
+    
+    /// Helper method to find the producer of a value
+    fn find_producer(&self, value_id: ValueId) -> Option<NodeId> {
+        self.graph.node_indices().find(|&node_idx| {
+            if let Some(node) = self.graph.node_weight(node_idx) {
+                node.outputs.contains(&value_id)
+            } else {
+                false
+            }
+        })
+    }
+    
+    /// Get the number of nodes in the graph
+    pub fn node_count(&self) -> usize {
+        self.graph.node_count()
+    }
+    
+    /// Get the number of values in the graph
+    pub fn value_count(&self) -> usize {
+        self.values.len()
+    }
+    
+    /// Get an iterator over all node indices
+    pub fn node_indices(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.graph.node_indices()
+    }
 }
 
 impl GraphView for Graph {
     fn node(&self, id: NodeId) -> Option<&Node> {
-        self.nodes.get(id)
+        self.graph.node_weight(id)
     }
 
     fn tensor(&self, id: ValueId) -> Option<&Tensor> {
-        self.values.get(id)
+        self.values.get(&id)
     }
 
     fn inputs(&self, node: NodeId) -> &[ValueId] {
-        self.nodes.get(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
+        self.graph.node_weight(node)
+            .map(|n| n.inputs.as_slice())
+            .unwrap_or(&[])
     }
 
     fn outputs(&self, node: NodeId) -> &[ValueId] {
-        self.nodes.get(node).map(|n| n.outputs.as_slice()).unwrap_or(&[])
+        self.graph.node_weight(node)
+            .map(|n| n.outputs.as_slice())
+            .unwrap_or(&[])
     }
 
     fn producer(&self, value: ValueId) -> Option<NodeId> {
-        self.value_producer.get(&value).copied()
+        // Search all nodes to find the producer of this value
+        self.graph.node_indices().find(|&node_idx| {
+            if let Some(node) = self.graph.node_weight(node_idx) {
+                node.outputs.contains(&value)
+            } else {
+                false
+            }
+        })
     }
 
-    fn consumers(&self, value: ValueId) -> &[NodeId] {
-        self.value_consumers.get(&value).map(|v| v.as_slice()).unwrap_or(&[])
+    fn consumers(&self, value: ValueId) -> Vec<NodeId> {
+        // Search all nodes to find consumers of this value
+        self.graph.node_indices()
+            .filter(|&node_idx| {
+                if let Some(node) = self.graph.node_weight(node_idx) {
+                    node.inputs.contains(&value)
+                } else {
+                    false
+                }
+            })
+            .collect()
     }
 
     fn graph_inputs(&self) -> &[ValueId] {
-        self.graph_input_values.as_slice()
+        &self.graph_input_values
     }
 
     fn graph_outputs(&self) -> &[ValueId] {
-        self.graph_output_values.as_slice()
+        &self.graph_output_values
     }
 }
 
 impl GraphEdit for Graph {
     fn add_node(&mut self, node: Node) -> NodeId {
-        let node_id = self.nodes.alloc(node);
-        if let Some(n) = self.nodes.get(node_id) {
-            // Register producers for each output
-            self.value_producer
-                .extend(n.outputs.iter().map(|&value_id| (value_id, node_id)));
-
-            // Register consumers for each input
-            n.inputs.iter().for_each(|&value_id| {
-                self.value_consumers.entry(value_id).or_default().push(node_id);
-            });
+        // Clone inputs to avoid borrowing issues
+        let inputs = node.inputs.clone();
+        let node_id = self.graph.add_node(node);
+        
+        // Add dependency edges based on value flow
+        for input_value in inputs {
+            // Find the producer of this input value and add dependency edge
+            if let Some(producer_id) = self.find_producer(input_value) {
+                self.graph.add_edge(producer_id, node_id, ());
+            }
         }
-        // Invalidate cached topology if present
-        self.topo_cache = None;
+        
         node_id
     }
 
     fn add_value(&mut self, tensor: Tensor) -> ValueId {
-        self.values.alloc(tensor)
+        let value_id = ValueId(self.next_value_id);
+        self.next_value_id += 1;
+        self.values.insert(value_id, tensor);
+        value_id
     }
 
     fn remove_node(&mut self, node: NodeId) {
-        if let Some(removed) = self.nodes.free(node) {
-            // Clean up producer entries for outputs
-            for value_id in removed.outputs {
-                self.value_producer.remove(&value_id);
-            }
-            // Clean up consumer entries for inputs
-            for value_id in removed.inputs {
-                if let Some(consumers) = self.value_consumers.get_mut(&value_id) {
-                    consumers.retain(|&n| n != node);
-                    if consumers.is_empty() {
-                        self.value_consumers.remove(&value_id);
-                    }
-                }
-            }
-            self.topo_cache = None;
-        }
+        self.graph.remove_node(node);
     }
 
     fn remove_value(&mut self, value: ValueId) {
-        let _ = self.values.free(value);
-        self.value_producer.remove(&value);
-        self.value_consumers.remove(&value);
-        self.topo_cache = None;
-    }
-
-    fn invalidate_topology(&mut self) {
-        self.topo_cache = None;
+        self.values.remove(&value);
     }
 }
 
@@ -981,17 +988,14 @@ mod tests {
     }
 
     #[test]
-    fn test_add_node_topology_cache_invalidation() {
+    fn test_add_node_basic_functionality() {
         let mut graph = Graph::new();
-
-        // Set up a fake topology cache
-        graph.topo_cache = Some(vec![]);
-
         let node = Node::new(OpKind::Identity);
-        graph.add_node(node);
+        let node_id = graph.add_node(node);
 
-        // Verify topology cache was invalidated
-        assert!(graph.topo_cache.is_none());
+        // Verify node was added and can be retrieved
+        assert!(graph.node(node_id).is_some());
+        assert_eq!(graph.node(node_id).unwrap().op_kind, OpKind::Identity);
     }
 
     #[test]
