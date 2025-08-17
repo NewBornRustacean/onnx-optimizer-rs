@@ -1,9 +1,9 @@
 use crate::graph::traits::{GraphEdit, GraphView};
 use crate::utils::error::OnnxOptError;
 use crate::utils::io::FromLeBytes;
-use onnx_proto::{ModelProto, GraphProto, TensorProto};
 use onnx_proto::tensor_proto::DataType as ProtoType;
-use petgraph::stable_graph::{StableGraph, NodeIndex};
+use onnx_proto::{GraphProto, ModelProto, TensorProto};
+use petgraph::stable_graph::{NodeIndex, StableGraph};
 use std::collections::HashMap;
 use std::str::FromStr;
 use strum_macros::{AsRefStr, Display, EnumString};
@@ -44,10 +44,7 @@ pub enum DataType {
 }
 
 impl DataType {
-    pub fn from_proto_data_type(
-        proto_type: ProtoType,
-    ) -> Result<Self, OnnxOptError> {
-
+    pub fn from_proto_data_type(proto_type: ProtoType) -> Result<Self, OnnxOptError> {
         match proto_type {
             ProtoType::Float => Ok(DataType::Float32),
             ProtoType::Double => Ok(DataType::Float64),
@@ -135,7 +132,7 @@ impl TensorData {
                 } else {
                     Self::extract_from_raw_data(
                         tensor_proto.raw_data.as_ref().map(|v| v.as_slice()).unwrap_or(&[]),
-                        TensorData::Uint32
+                        TensorData::Uint32,
                     )
                 }
             }
@@ -364,14 +361,14 @@ impl OpKind {
 pub struct Graph {
     /// Core petgraph structure - stores nodes with dependency edges
     graph: StableGraph<Node, ()>,
-    
+
     /// Value/tensor storage
     values: HashMap<ValueId, Tensor>,
-    
+
     /// Graph-level metadata
     graph_input_values: Vec<ValueId>,
     graph_output_values: Vec<ValueId>,
-    
+
     /// Value ID generator (NodeId is managed by petgraph)
     next_value_id: u32,
 }
@@ -392,74 +389,88 @@ pub enum NodeAttrValue {
 impl NodeAttrValue {
     pub fn from_proto(attr_proto: &onnx_proto::AttributeProto) -> Result<Self, OnnxOptError> {
         use onnx_proto::attribute_proto::AttributeType;
-        
+
         let attr_type = attr_proto
             .r#type
             .and_then(|t| AttributeType::try_from(t).ok())
             .unwrap_or(AttributeType::Undefined);
-        
+
         match attr_type {
-            AttributeType::Float => attr_proto
-                .f
-                .map(|f| NodeAttrValue::Float(f as f64))
-                .ok_or_else(|| OnnxOptError::Conversion("Float attribute has no value".to_string())),
-                
+            AttributeType::Float => {
+                attr_proto.f.map(|f| NodeAttrValue::Float(f as f64)).ok_or_else(|| {
+                    OnnxOptError::Conversion("Float attribute has no value".to_string())
+                })
+            }
+
             AttributeType::Int => attr_proto
                 .i
                 .map(NodeAttrValue::Int)
                 .ok_or_else(|| OnnxOptError::Conversion("Int attribute has no value".to_string())),
-                
+
             AttributeType::String => attr_proto
                 .s
                 .as_ref()
-                .ok_or_else(|| OnnxOptError::Conversion("String attribute has no value".to_string()))
+                .ok_or_else(|| {
+                    OnnxOptError::Conversion("String attribute has no value".to_string())
+                })
                 .and_then(|bytes| {
-                    String::from_utf8(bytes.clone())
-                        .map(NodeAttrValue::String)
-                        .map_err(|e| OnnxOptError::Conversion(format!("Invalid UTF-8 in string attribute: {}", e)))
+                    String::from_utf8(bytes.clone()).map(NodeAttrValue::String).map_err(|e| {
+                        OnnxOptError::Conversion(format!(
+                            "Invalid UTF-8 in string attribute: {}",
+                            e
+                        ))
+                    })
                 }),
-                
+
             AttributeType::Tensor => attr_proto
                 .t
                 .as_ref()
-                .ok_or_else(|| OnnxOptError::Conversion("Tensor attribute has no value".to_string()))
-                .and_then(|tensor_proto| Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)),
-                
+                .ok_or_else(|| {
+                    OnnxOptError::Conversion("Tensor attribute has no value".to_string())
+                })
+                .and_then(|tensor_proto| {
+                    Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)
+                }),
+
             AttributeType::Floats => Ok(NodeAttrValue::Floats(
-                attr_proto.floats.iter().map(|&f| f as f64).collect()
+                attr_proto.floats.iter().map(|&f| f as f64).collect(),
             )),
-            
+
             AttributeType::Ints => Ok(NodeAttrValue::Ints(attr_proto.ints.clone())),
-            
+
             AttributeType::Strings => attr_proto
                 .strings
                 .iter()
                 .map(|bytes| String::from_utf8(bytes.clone()))
                 .collect::<Result<Vec<_>, _>>()
                 .map(NodeAttrValue::Strings)
-                .map_err(|e| OnnxOptError::Conversion(format!("Invalid UTF-8 in strings attribute: {}", e))),
-                
+                .map_err(|e| {
+                    OnnxOptError::Conversion(format!("Invalid UTF-8 in strings attribute: {}", e))
+                }),
+
             AttributeType::Graph => {
                 // For now, we'll represent graphs as empty NodeId vectors
                 // A more complete implementation would convert the GraphProto to NodeIds
                 Ok(NodeAttrValue::Graph(Vec::new()))
             }
-            
+
             AttributeType::Tensors => attr_proto
                 .tensors
                 .first()
-                .ok_or_else(|| OnnxOptError::Conversion("Tensors attribute has no values".to_string()))
-                .and_then(|tensor_proto| Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)),
-                
+                .ok_or_else(|| {
+                    OnnxOptError::Conversion("Tensors attribute has no values".to_string())
+                })
+                .and_then(|tensor_proto| {
+                    Tensor::from_proto(tensor_proto).map(NodeAttrValue::Tensor)
+                }),
+
             _ => Err(OnnxOptError::UnsupportedOp(format!(
-                "Unsupported attribute type: {:?}", 
+                "Unsupported attribute type: {:?}",
                 attr_type
             ))),
         }
     }
 }
-
-
 
 impl Tensor {
     pub fn new(dtype: DataType) -> Self {
@@ -508,9 +519,11 @@ impl Tensor {
     }
 
     /// Create a Tensor from ValueInfoProto (used for graph inputs/outputs/value_info)
-    pub fn from_value_info_proto(value_info: &onnx_proto::ValueInfoProto) -> Result<Self, OnnxOptError> {
+    pub fn from_value_info_proto(
+        value_info: &onnx_proto::ValueInfoProto,
+    ) -> Result<Self, OnnxOptError> {
         let name = value_info.name.clone();
-        
+
         let (dtype, shape) = value_info
             .r#type
             .as_ref()
@@ -520,7 +533,6 @@ impl Tensor {
                     let elem_type = tensor_type.elem_type?;
                     let proto_type = onnx_proto::tensor_proto::DataType::try_from(elem_type).ok()?;
                     let dtype = DataType::from_proto_data_type(proto_type).ok()?;
-                    
                     let shape = tensor_type
                         .shape
                         .as_ref()
@@ -537,7 +549,6 @@ impl Tensor {
                                 .collect::<Vec<_>>()
                         })
                         .filter(|v| !v.is_empty());
-                    
                     Some((dtype, shape))
                 }
                 _ => None, // Only handle tensor types for now
@@ -589,11 +600,10 @@ impl Node {
             .attribute
             .iter()
             .map(|attr_proto| {
-                let name = attr_proto
-                    .name
-                    .as_ref()
-                    .ok_or_else(|| OnnxOptError::Conversion("Missing name in AttributeProto".to_string()))?;
-                
+                let name = attr_proto.name.as_ref().ok_or_else(|| {
+                    OnnxOptError::Conversion("Missing name in AttributeProto".to_string())
+                })?;
+
                 let value = NodeAttrValue::from_proto(attr_proto)?;
                 Ok((name.clone(), value))
             })
@@ -643,7 +653,7 @@ impl Graph {
                 Ok((name, value_id))
             })
             .collect::<Result<Vec<_>, OnnxOptError>>()?;
-        
+
         name_to_value_id.extend(initializer_mappings);
 
         // Step 2: Process graph inputs (create tensors from ValueInfoProto)
@@ -657,7 +667,7 @@ impl Graph {
                 Ok((name, value_id))
             })
             .collect::<Result<Vec<_>, OnnxOptError>>()?;
-        
+
         graph.graph_input_values = input_mappings.iter().map(|(_, value_id)| *value_id).collect();
         name_to_value_id.extend(input_mappings);
 
@@ -672,7 +682,7 @@ impl Graph {
                 Ok((name, value_id))
             })
             .collect::<Result<Vec<_>, OnnxOptError>>()?;
-        
+
         graph.graph_output_values = output_mappings.iter().map(|(_, value_id)| *value_id).collect();
         name_to_value_id.extend(output_mappings);
 
@@ -689,7 +699,7 @@ impl Graph {
         // Step 5: Process nodes and resolve input/output ValueIds
         for node_proto in &graph_proto.node {
             let mut node = Node::from_node_proto(node_proto)?;
-            
+
             // Resolve input names to ValueIds
             node.inputs = node_proto
                 .input
@@ -704,7 +714,7 @@ impl Graph {
                     })
                 })
                 .collect();
-            
+
             // Resolve output names to ValueIds
             node.outputs = node_proto
                 .output
@@ -719,13 +729,13 @@ impl Graph {
                     })
                 })
                 .collect();
-            
+
             graph.add_node(node);
         }
 
         Ok(graph)
     }
-    
+
     /// Helper method to find the producer of a value
     fn find_producer(&self, value_id: ValueId) -> Option<NodeId> {
         self.graph.node_indices().find(|&node_idx| {
@@ -736,17 +746,17 @@ impl Graph {
             }
         })
     }
-    
+
     /// Get the number of nodes in the graph
     pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
-    
+
     /// Get the number of values in the graph
     pub fn value_count(&self) -> usize {
         self.values.len()
     }
-    
+
     /// Get an iterator over all node indices
     pub fn node_indices(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.graph.node_indices()
@@ -763,15 +773,11 @@ impl GraphView for Graph {
     }
 
     fn inputs(&self, node: NodeId) -> &[ValueId] {
-        self.graph.node_weight(node)
-            .map(|n| n.inputs.as_slice())
-            .unwrap_or(&[])
+        self.graph.node_weight(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
     }
 
     fn outputs(&self, node: NodeId) -> &[ValueId] {
-        self.graph.node_weight(node)
-            .map(|n| n.outputs.as_slice())
-            .unwrap_or(&[])
+        self.graph.node_weight(node).map(|n| n.outputs.as_slice()).unwrap_or(&[])
     }
 
     fn producer(&self, value: ValueId) -> Option<NodeId> {
@@ -787,7 +793,8 @@ impl GraphView for Graph {
 
     fn consumers(&self, value: ValueId) -> Vec<NodeId> {
         // Search all nodes to find consumers of this value
-        self.graph.node_indices()
+        self.graph
+            .node_indices()
             .filter(|&node_idx| {
                 if let Some(node) = self.graph.node_weight(node_idx) {
                     node.inputs.contains(&value)
@@ -812,7 +819,7 @@ impl GraphEdit for Graph {
         // Clone inputs to avoid borrowing issues
         let inputs = node.inputs.clone();
         let node_id = self.graph.add_node(node);
-        
+
         // Add dependency edges based on value flow
         for input_value in inputs {
             // Find the producer of this input value and add dependency edge
@@ -820,7 +827,7 @@ impl GraphEdit for Graph {
                 self.graph.add_edge(producer_id, node_id, ());
             }
         }
-        
+
         node_id
     }
 

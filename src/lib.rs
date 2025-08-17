@@ -5,7 +5,7 @@ pub mod utils;
 pub use onnx_proto as proto;
 
 // Re-export common types for convenience
-pub use graph::objects::{Graph, Node, Tensor, NodeId, ValueId, OpKind, DataType};
-pub use graph::traits::{GraphView, GraphEdit};
-pub use utils::io::{load_model, save_model};
+pub use graph::objects::{DataType, Graph, Node, NodeId, OpKind, Tensor, ValueId};
+pub use graph::traits::{GraphEdit, GraphView};
 pub use utils::error::OnnxOptError;
+pub use utils::io::{load_model, save_model};
