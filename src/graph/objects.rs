@@ -360,7 +360,7 @@ impl OpKind {
 #[derive(Debug)]
 pub struct Graph {
     /// Core petgraph structure - stores nodes with dependency edges
-    graph: StableGraph<Node, ()>,
+    nodes: StableGraph<Node, ()>,
 
     /// Value/tensor storage
     values: HashMap<ValueId, Tensor>,
@@ -622,7 +622,7 @@ impl Node {
 impl Graph {
     pub fn new() -> Self {
         Self {
-            graph: StableGraph::new(),
+            nodes: StableGraph::new(),
             values: HashMap::new(),
             graph_input_values: Vec::new(),
             graph_output_values: Vec::new(),
@@ -738,8 +738,8 @@ impl Graph {
 
     /// Helper method to find the producer of a value
     fn find_producer(&self, value_id: ValueId) -> Option<NodeId> {
-        self.graph.node_indices().find(|&node_idx| {
-            if let Some(node) = self.graph.node_weight(node_idx) {
+        self.nodes.node_indices().find(|&node_idx| {
+            if let Some(node) = self.nodes.node_weight(node_idx) {
                 node.outputs.contains(&value_id)
             } else {
                 false
@@ -749,7 +749,7 @@ impl Graph {
 
     /// Get the number of nodes in the graph
     pub fn node_count(&self) -> usize {
-        self.graph.node_count()
+        self.nodes.node_count()
     }
 
     /// Get the number of values in the graph
@@ -759,13 +759,13 @@ impl Graph {
 
     /// Get an iterator over all node indices
     pub fn node_indices(&self) -> impl Iterator<Item = NodeId> + '_ {
-        self.graph.node_indices()
+        self.nodes.node_indices()
     }
 }
 
 impl GraphView for Graph {
     fn node(&self, id: NodeId) -> Option<&Node> {
-        self.graph.node_weight(id)
+        self.nodes.node_weight(id)
     }
 
     fn tensor(&self, id: ValueId) -> Option<&Tensor> {
@@ -773,17 +773,17 @@ impl GraphView for Graph {
     }
 
     fn inputs(&self, node: NodeId) -> &[ValueId] {
-        self.graph.node_weight(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
+        self.nodes.node_weight(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
     }
 
     fn outputs(&self, node: NodeId) -> &[ValueId] {
-        self.graph.node_weight(node).map(|n| n.outputs.as_slice()).unwrap_or(&[])
+        self.nodes.node_weight(node).map(|n| n.outputs.as_slice()).unwrap_or(&[])
     }
 
     fn producer(&self, value: ValueId) -> Option<NodeId> {
         // Search all nodes to find the producer of this value
-        self.graph.node_indices().find(|&node_idx| {
-            if let Some(node) = self.graph.node_weight(node_idx) {
+        self.nodes.node_indices().find(|&node_idx| {
+            if let Some(node) = self.nodes.node_weight(node_idx) {
                 node.outputs.contains(&value)
             } else {
                 false
@@ -793,10 +793,10 @@ impl GraphView for Graph {
 
     fn consumers(&self, value: ValueId) -> Vec<NodeId> {
         // Search all nodes to find consumers of this value
-        self.graph
+        self.nodes
             .node_indices()
             .filter(|&node_idx| {
-                if let Some(node) = self.graph.node_weight(node_idx) {
+                if let Some(node) = self.nodes.node_weight(node_idx) {
                     node.inputs.contains(&value)
                 } else {
                     false
@@ -818,13 +818,13 @@ impl GraphEdit for Graph {
     fn add_node(&mut self, node: Node) -> NodeId {
         // Clone inputs to avoid borrowing issues
         let inputs = node.inputs.clone();
-        let node_id = self.graph.add_node(node);
+        let node_id = self.nodes.add_node(node);
 
         // Add dependency edges based on value flow
         for input_value in inputs {
             // Find the producer of this input value and add dependency edge
             if let Some(producer_id) = self.find_producer(input_value) {
-                self.graph.add_edge(producer_id, node_id, ());
+                self.nodes.add_edge(producer_id, node_id, ());
             }
         }
 
@@ -839,7 +839,7 @@ impl GraphEdit for Graph {
     }
 
     fn remove_node(&mut self, node: NodeId) {
-        self.graph.remove_node(node);
+        self.nodes.remove_node(node);
     }
 
     fn remove_value(&mut self, value: ValueId) {

@@ -46,8 +46,7 @@ impl Default for OptimizationConfig {
 /// Single-threaded optimization executor that owns the graph
 /// 
 /// This executor takes ownership of the graph, applies optimization passes,
-/// and returns the optimized graph. This design avoids lifetime complexity
-/// while providing efficient optimization capabilities.
+/// and returns the optimized graph.
 pub struct OptimizationExecutor {
     /// The graph being optimized (owned)
     graph: Graph,
