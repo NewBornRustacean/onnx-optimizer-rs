@@ -56,91 +56,169 @@ Optimizations will be implemented in levels, with each level including the passe
 *   **Usability**: Can anyone easily optimize their model using a simple and intuitive CLI command?
 
 
-## Design decision
+## Design Decision
+
+### Architecture Overview: Petgraph-based Graph Representation
+
+After careful evaluation, we adopted **[petgraph](https://docs.rs/petgraph/latest/petgraph/)'s StableGraph** as our core graph data structure, eliminating the custom Arena-based implementation. This decision provides significant benefits in terms of code simplicity, maintenance, and access to proven graph algorithms.
+
 ```
-     ┌────────────────────────── utils/ ───────────────────── graph/ ─────────┐
-     │                                                                        │
-     │  ┌─────────────┐                                                       │
-     │  │ utils/arena.rs │ ◄──────── generic reusable component               │
-     │  │             │                                                       │
-     │  │ Arena<T>    │ ────┐                                                 │
-     │  │  ├─ items   │     │ provides                                        │
-     │  │  ├─ free    │     │ stable ID                                       │
-     │  │  └─ alloc() │     │ mapping                                         │
-     │  └─────────────┘     │                                                 │
-     │                      │                                                 │
-     │  ┌─────────────┐     │         ┌──────────────┐                        │
-     │  │ objects.rs  │     │         │              │                        │
-     │  │             │     │         │  NodeId(u32) │◄──┐                    │
-     │  │ NodeId      │─────┼────────▶│ ValueId(u32) │  │                   │
-     │  │ ValueId     │     │         │              │   │ indexes into      │
-     │  │ Tensor      │     │         └──────────────┘   │                   │
-     │  │ Node        │     │                            │                   │
-     │  │ OpKind      │     │                            │                   │
-     │  │ AttrValue   │     │                            │                   │
-     │  └─────────────┘     │                            │                   │
-     │                      │                            │                   │
-     │                      ▼                            │                   │
-     │  ┌─────────────────────────────────────────────────┼─────────────────┐ │
-     │  │               graph.rs                          │                 │ │
-     │  │                                                 │                 │ │
-     │  │  Graph {                                        │                 │ │
-     │  │    nodes:  Arena<Node>     ◄────────────────────┘                 │ │
-     │  │    values: Arena<Tensor>   ◄────────────────────┐                 │ │
-     │  │    topo_cache: Option<Vec<NodeId>>               │                 │ │
-     │  │  }                                               │                 │ │
-     │  │                                                  │                 │ │
-     │  │  ┌─── Mutation API ───────────────────┐          │                 │ │
-     │  │  │ trait GraphEdit                    │          │                 │ │
-     │  │  │  ├─ add_node()    ──┐              │          │                 │ │
-     │  │  │  ├─ remove_node() ──┼─ triggers ───┼─ invalidate_topo()         │ │
-     │  │  │  └─ rewire()      ──┘              │          │                 │ │
-     │  │  └────────────────────────────────────┘          │                 │ │
-     │  │                                                  │                 │ │
-     │  │  ┌─── View API ──────────────────────┐          │                 │ │
-     │  │  │ trait GraphView                   │          │                 │ │
-     │  │  │  ├─ node(id) ──────────────────────┼─────────▶│ Arena::get()    │ │
-     │  │  │  ├─ inputs(id)                     │          │                 │ │
-     │  │  │  └─ is_const(id)                   │          │                 │ │
-     │  │  └────────────────────────────────────┘          │                 │ │
-     │  │                                                  │                 │ │
-     │  │  ┌─── Topological Cache ──────────────┐          │                 │ │
-     │  │  │ topo_iter() ──┐                    │          │                 │ │
-     │  │  │               │ if cache is None   │          │                 │ │
-     │  │  │               ▼                    │          │                 │ │
-     │  │  │ recompute_topo() ── Kahn's algo    │          │                 │ │
-     │  │  └────────────────────────────────────┘          │                 │ │
-     │  └─────────────────────────────────────────────────────────────────────┘ │
-     │                                                                        │
-     │  ┌─────────────┐                                                       │
-     │  │   mod.rs    │  ◄── public re-exports                                │
-     │  │             │                                                       │
-     │  │ pub use {   │                                                       │
-     │  │   Arena,    │ ◄─────────── exposes Arena for other modules        │
-     │  │   Node,     │                                                       │
-     │  │   Graph,    │                                                       │
-     │  │   GraphEdit │                                                       │
-     │  │ }           │                                                       │
-     │  └─────────────┘                                                       │
-     │                                                                        │
-     │ (external) Other potential users of Arena:                            │
-     │ ──────────────────────────────────────────────────────────────────────│
-     │     Arena<PatternNode>     ← pattern matching DSL                     │
-     │     Arena<ShapeExpr>       ← shape inference IR                       │
-     │     Arena<KernelBlock>     ← execution scheduling                     │
-     │     Arena<QuantParam>      ← quantization metadata                    │
-     └────────────────────────────────────────────────────────────────────────┘
+     ┌──────────────────── graph/ ────────────────────── utils/ ──────────┐
+     │                                                                    │
+     │  ┌─────────────────────────────────────────────────────────────────┐ │
+     │  │                    objects.rs                                   │ │
+     │  │                                                                 │ │
+     │  │  ┌──── Core Types ────┐        ┌──── ONNX Mapping ────┐        │ │
+     │  │  │                    │        │                      │        │ │
+     │  │  │ NodeId(NodeIndex) ◄┼────────┼─► petgraph::NodeIndex│        │ │
+     │  │  │ ValueId(u32)       │        │                      │        │ │
+     │  │  │ Tensor             │        │ OpKind ◄─────────────┼─► ONNX │ │
+     │  │  │ Node               │        │ NodeAttrValue        │   Ops  │ │
+     │  │  │ DataType           │        │ TensorData           │        │ │
+     │  │  └────────────────────┘        └──────────────────────┘        │ │
+     │  └─────────────────────────────────────────────────────────────────┘ │
+     │                                  │                                   │
+     │                                  ▼                                   │
+     │  ┌─────────────────────────────────────────────────────────────────┐ │
+     │  │                         Graph                                   │ │
+     │  │                                                                 │ │
+     │  │   ┌─ Petgraph Core ─────────────────────────────────────────┐   │ │
+     │  │   │                                                         │   │ │
+     │  │   │  nodes: StableGraph<Node, ()>  ◄─ Nodes + Dependencies  │   │ │
+     │  │   │           │                       (automatic edge mgmt) │   │ │
+     │  │   │           │                                             │   │ │
+     │  │   │           ▼                                             │   │ │
+     │  │   │  ┌─ Built-in Algorithms ─┐                             │   │ │
+     │  │   │  │ ✓ Topological Sort     │                             │   │ │
+     │  │   │  │ ✓ Cycle Detection      │                             │   │ │
+     │  │   │  │ ✓ Graph Traversal      │                             │   │ │
+     │  │   │  │ ✓ Strongly Connected   │                             │   │ │
+     │  │   │  └────────────────────────┘                             │   │ │
+     │  │   └─────────────────────────────────────────────────────────┘   │ │
+     │  │                                                                 │ │
+     │  │   ┌─ Value Storage ─────────────────────────────────────────┐   │ │
+     │  │   │                                                         │   │ │
+     │  │   │  values: HashMap<ValueId, Tensor>  ◄─ Tensor Storage    │   │ │
+     │  │   │                                                         │   │ │
+     │  │   └─────────────────────────────────────────────────────────┘   │ │
+     │  │                                                                 │ │
+     │  │   ┌─ Graph Metadata ────────────────────────────────────────┐   │ │
+     │  │   │                                                         │   │ │
+     │  │   │  graph_input_values: Vec<ValueId>                       │   │ │
+     │  │   │  graph_output_values: Vec<ValueId>                      │   │ │
+     │  │   │  next_value_id: u32                                     │   │ │
+     │  │   │                                                         │   │ │
+     │  │   └─────────────────────────────────────────────────────────┘   │ │
+     │  └─────────────────────────────────────────────────────────────────┘ │
+     │                                                                    │
+     │  ┌─────────────────────────────────────────────────────────────────┐ │
+     │  │                    Trait Implementation                         │ │
+     │  │                                                                 │ │
+     │  │  ┌─── GraphView (Read-only) ──┐  ┌─── GraphEdit (Mutation) ───┐ │ │
+     │  │  │                            │  │                            │ │ │
+     │  │  │ node(id) ─────────────────┐│  │ add_node() ──┐             │ │ │
+     │  │  │ tensor(id)                ││  │ remove_node() │             │ │ │
+     │  │  │ inputs(id)                ││  │ add_value()   │ manages     │ │ │
+     │  │  │ outputs(id)      calls    ││  │ remove_value()│ petgraph    │ │ │
+     │  │  │ producer(id) ─────────────┼┼──┼──────────────┘ edges        │ │ │
+     │  │  │ consumers(id)             ││  │               automatically │ │ │
+     │  │  │ graph_inputs()            ││  │                            │ │ │
+     │  │  │ graph_outputs()           ││  │                            │ │ │
+     │  │  └───────────────────────────┘│  └────────────────────────────┘ │ │
+     │  │                               │                                │ │
+     │  │                               ▼                                │ │
+     │  │                    petgraph::StableGraph                       │ │
+     │  │                         method calls                           │ │
+     │  └─────────────────────────────────────────────────────────────────┘ │
+     │                                                                    │
+     │  ┌─────────────────────────────────────────────────────────────────┐ │
+     │  │                      executor.rs                               │ │
+     │  │                                                                 │ │
+     │  │  OptimizationExecutor {                                         │ │
+     │  │    graph: Graph ◄─── owns and modifies Graph                    │ │
+     │  │    config: OptimizationConfig                                   │ │
+     │  │    stats: OptimizationStats                                     │ │
+     │  │  }                                                              │ │
+     │  │                                                                 │ │
+     │  │  ┌─ Optimization Passes ─────────────────────────────────────┐  │ │
+     │  │  │                                                           │  │ │
+     │  │  │ • constant_folding()    ← utilizes petgraph traversal     │  │ │
+     │  │  │ • dead_node_elimination() ← uses topological_sort()       │  │ │
+     │  │  │ • identity_elimination()                                   │  │ │
+     │  │  │ • operator_fusion()     ← pattern matching on graph       │  │ │
+     │  │  │                                                           │  │ │
+     │  │  └───────────────────────────────────────────────────────────┘  │ │
+     │  └─────────────────────────────────────────────────────────────────┘ │
+     └────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Interactions:**
+### Key Design Benefits
 
-1. **`Arena<T>`** provides **stable ID mapping** for any type `T`
-2. **`objects.rs`** defines all data structures that go into Arenas
-3. **`graph.rs`** uses **Arena<Node>** and **Arena<Tensor>** for storage
-4. **Any mutation** via `GraphEdit` triggers **`invalidate_topo()`**
-5. **Next `topo_iter()`** call recomputes topological order using **Kahn's algorithm**
-6. **`mod.rs`** exposes `Arena` publicly so other modules can reuse it
+#### 🎯 **Simplified Architecture**
+- **Single Source of Truth**: StableGraph manages both nodes and connectivity
+- **No Manual Synchronization**: Eliminated Arena<->graph sync issues  
+- **Reduced Complexity**: Removed ~200 lines of manual graph management code
+
+#### 🚀 **Proven Graph Algorithms**
+- **Topological Sorting**: Built-in `petgraph::algo::toposort()`
+- **Cycle Detection**: Automatic validation during graph construction
+- **Graph Traversal**: DFS, BFS, and custom traversals readily available
+- **Strongly Connected Components**: Available for advanced optimizations
+
+#### 🔧 **Memory Efficiency**
+- **Direct Storage**: Nodes stored directly in StableGraph, not duplicated
+- **Stable Indices**: `NodeIndex` remains valid after node removal operations
+- **Value Deduplication**: Single HashMap for tensor storage
+
+### Core Components
+
+#### 1. **Graph Structure**
+```rust
+pub struct Graph {
+    /// Core petgraph structure - stores nodes with dependency edges
+    nodes: StableGraph<Node, ()>,
+    
+    /// Value/tensor storage
+    values: HashMap<ValueId, Tensor>,
+    
+    /// Graph-level metadata  
+    graph_input_values: Vec<ValueId>,
+    graph_output_values: Vec<ValueId>,
+    
+    /// Value ID generator (NodeId managed by petgraph)
+    next_value_id: u32,
+}
+```
+
+#### 2. **Automatic Edge Management**
+- **Input Dependencies**: Edges automatically created based on `Node.inputs`
+- **Producer-Consumer**: Relationship maintained through graph structure
+- **Dataflow Integrity**: Graph edges represent actual tensor flow
+
+#### 3. **Standard Graph Operations**
+```rust
+// All operations work directly with petgraph
+let topo_order = petgraph::algo::toposort(&graph.nodes, None)?;
+let is_cyclic = petgraph::algo::is_cyclic_directed(&graph.nodes);
+let sccs = petgraph::algo::tarjan_scc(&graph.nodes);
+```
+
+### Benefits
+#### petgraph based:
+- ✅ Automatic relationship tracking through graph edges
+- ✅ Zero synchronization - single source of truth
+- ✅ Industry-standard algorithms out of the box
+- ✅ Extensive graph analysis capabilities
+
+### Future Extensibility
+
+The petgraph foundation enables advanced optimizations:
+- **Pattern Matching**: Graph isomorphism for operator fusion
+- **Dataflow Analysis**: Advanced dependency tracking
+- **Memory Layout**: Optimal tensor placement algorithms
+- **Parallelization**: Safe parallel graph analysis (read-only operations)
 
 ## References
 - [onnx optimizer: from onnx org.](https://github.com/onnx/optimizer) - we have similar goals with this awesome work.
 - [onnx simplifier: inspired by onnxoptimizer](https://github.com/daquexian/onnx-simplifier)
+- [petgraph: graph related crate](https://docs.rs/petgraph/latest/petgraph/)
