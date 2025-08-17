@@ -1,10 +1,28 @@
-use crate::graph::traits::OptimizationLevel;
+/// Configuration for optimization behavior
+#[derive(Debug, Clone)]
+pub struct OptimizationConfig {
+    /// Maximum number of optimization passes to run
+    pub max_passes: u32,
+    /// Whether to cache topological order between passes
+    pub cache_topology: bool,
+    /// Minimum graph size to enable certain optimizations
+    pub min_graph_size_for_advanced_opts: usize,
+}
+
+impl Default for OptimizationConfig {
+    fn default() -> Self {
+        Self {
+            max_passes: 10,
+            cache_topology: true,
+            min_graph_size_for_advanced_opts: 100,
+        }
+    }
+}
 
 /// Builder pattern for optimization configuration
 #[derive(Debug, Clone)]
 pub struct OptimizationConfigBuilder {
     max_passes: u32,
-    level: OptimizationLevel,
     cache_topology: bool,
     min_graph_size_for_advanced_opts: usize,
     enabled_passes: Vec<String>,
@@ -15,7 +33,6 @@ impl Default for OptimizationConfigBuilder {
     fn default() -> Self {
         Self {
             max_passes: 10,
-            level: OptimizationLevel::Basic,
             cache_topology: true,
             min_graph_size_for_advanced_opts: 100,
             enabled_passes: Vec::new(),
@@ -32,12 +49,6 @@ impl OptimizationConfigBuilder {
     /// Set maximum number of optimization passes
     pub fn max_passes(mut self, max_passes: u32) -> Self {
         self.max_passes = max_passes;
-        self
-    }
-
-    /// Set optimization level
-    pub fn level(mut self, level: OptimizationLevel) -> Self {
-        self.level = level;
         self
     }
 
@@ -64,11 +75,11 @@ impl OptimizationConfigBuilder {
         self.disabled_passes.extend(passes.iter().map(|s| s.to_string()));
         self
     }
+
     /// Build the final configuration
-    pub fn build(self) -> super::executor::OptimizationConfig {
-        super::executor::OptimizationConfig {
+    pub fn build(self) -> OptimizationConfig {
+        OptimizationConfig {
             max_passes: self.max_passes,
-            level: self.level,
             cache_topology: self.cache_topology,
             min_graph_size_for_advanced_opts: self.min_graph_size_for_advanced_opts,
         }
@@ -83,7 +94,6 @@ mod tests {
     fn test_config_builder_defaults() {
         let config = OptimizationConfigBuilder::new().build();
         assert_eq!(config.max_passes, 10);
-        assert_eq!(config.level, OptimizationLevel::Basic);
         assert!(config.cache_topology);
     }
 
@@ -91,13 +101,11 @@ mod tests {
     fn test_config_builder_custom() {
         let config = OptimizationConfigBuilder::new()
             .max_passes(5)
-            .level(OptimizationLevel::Basic)
             .cache_topology(false)
             .min_graph_size_for_advanced_opts(50)
             .build();
 
         assert_eq!(config.max_passes, 5);
-        assert_eq!(config.level, OptimizationLevel::Basic);
         assert!(!config.cache_topology);
         assert_eq!(config.min_graph_size_for_advanced_opts, 50);
     }

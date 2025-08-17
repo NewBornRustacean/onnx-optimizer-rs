@@ -1,6 +1,4 @@
-use crate::graph::traits::OptimizationPass;
-use crate::utils::error::OnnxOptError;
-use crate::register_pass;
+use crate::passes::{OptimizationPass, error::PassError};
 
 /// Dead node elimination pass
 pub struct DeadNodeEliminationPass;
@@ -12,11 +10,11 @@ impl DeadNodeEliminationPass {
 }
 
 impl OptimizationPass for DeadNodeEliminationPass {
-    fn pass_name(&self) -> &'static str {
-        "dead_node_elimination"
+    fn pass_name(&self) -> String {
+        "dead_node_elimination".to_string()
     }
 
-    fn execute(&mut self) -> Result<u32, OnnxOptError> {
+    fn execute(&mut self) -> Result<u32, PassError> {
         todo!("Execute dead node elimination pass")
     }
 
@@ -34,6 +32,3 @@ impl Default for DeadNodeEliminationPass {
         Self::new()
     }
 }
-
-// Register the pass in the global registry
-register_pass!("dead_node_elimination", DeadNodeEliminationPass);

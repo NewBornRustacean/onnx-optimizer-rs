@@ -1,9 +1,9 @@
 use crate::graph::traits::{GraphEdit, GraphView};
 use crate::utils::error::OnnxOptError;
 use crate::utils::io::FromLeBytes;
-use onnx_proto::{GraphProto, ModelProto, TensorProto, ValueInfoProto, NodeProto, AttributeProto};
 use onnx_proto::attribute_proto::AttributeType;
 use onnx_proto::tensor_proto::DataType as ProtoType;
+use onnx_proto::{AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto, ValueInfoProto};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -518,9 +518,7 @@ impl Tensor {
     }
 
     /// Create a Tensor from ValueInfoProto (used for graph inputs/outputs/value_info)
-    pub fn from_value_info_proto(
-        value_info: &ValueInfoProto,
-    ) -> Result<Self, OnnxOptError> {
+    pub fn from_value_info_proto(value_info: &ValueInfoProto) -> Result<Self, OnnxOptError> {
         let name = value_info.name.clone();
 
         let (dtype, shape) = value_info

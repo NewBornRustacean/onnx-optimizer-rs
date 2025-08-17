@@ -1,6 +1,5 @@
-use crate::graph::traits::OptimizationPass;
-use crate::utils::error::OnnxOptError;
-use crate::register_pass;
+use crate::passes::OptimizationPass;
+use crate::passes::error::PassError;
 
 /// Fusion pass for Conv + BatchNorm operations
 pub struct ConvBatchNormFusionPass;
@@ -12,11 +11,11 @@ impl ConvBatchNormFusionPass {
 }
 
 impl OptimizationPass for ConvBatchNormFusionPass {
-    fn pass_name(&self) -> &'static str {
-        "conv_batchnorm_fusion"
+    fn pass_name(&self) -> String {
+        "conv_batchnorm_fusion".to_string()
     }
 
-    fn execute(&mut self) -> Result<u32, OnnxOptError> {
+    fn execute(&mut self) -> Result<u32, PassError> {
         // This would identify Conv->BatchNorm patterns and fuse them
         todo!("Execute Conv+BatchNorm fusion pass")
     }
@@ -36,6 +35,3 @@ impl Default for ConvBatchNormFusionPass {
         Self::new()
     }
 }
-
-// Register the pass in the global registry
-register_pass!("conv_batchnorm_fusion", ConvBatchNormFusionPass);

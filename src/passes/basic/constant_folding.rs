@@ -1,6 +1,4 @@
-use crate::graph::traits::OptimizationPass;
-use crate::utils::error::OnnxOptError;
-use crate::register_pass;
+use crate::passes::{OptimizationPass, error::PassError};
 
 /// Constant folding optimization pass
 pub struct ConstantFoldingPass;
@@ -12,11 +10,11 @@ impl ConstantFoldingPass {
 }
 
 impl OptimizationPass for ConstantFoldingPass {
-    fn pass_name(&self) -> &'static str {
-        "constant_folding"
+    fn pass_name(&self) -> String {
+        "constant_folding".to_string()
     }
 
-    fn execute(&mut self) -> Result<u32, OnnxOptError> {
+    fn execute(&mut self) -> Result<u32, PassError> {
         // This would be implemented to work with the graph
         todo!("Execute constant folding pass")
     }
@@ -36,6 +34,3 @@ impl Default for ConstantFoldingPass {
         Self::new()
     }
 }
-
-// Register the pass in the global registry
-register_pass!("constant_folding", ConstantFoldingPass);

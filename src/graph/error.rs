@@ -1,6 +1,6 @@
 // Error types specific to executor operations
 #[derive(Debug, thiserror::Error)]
-pub enum ExecutorError {
+pub enum GraphError {
     #[error("Graph contains cycles")]
     CyclicGraph,
     #[error("Invalid node operation: {0}")]
