@@ -19,4 +19,7 @@ pub enum OnnxOptError {
 
     #[error("Unsupported operation: {0}")]
     UnsupportedOp(String),
+
+    #[error("Unknown optimization pass: {0}")]
+    UnknownPass(String),
 }
