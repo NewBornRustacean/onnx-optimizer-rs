@@ -1,6 +1,7 @@
 use crate::passes::{OptimizationPass, error::PassError};
 
 /// Constant folding optimization pass
+#[derive(Debug, Clone)]
 pub struct ConstantFoldingPass;
 
 impl ConstantFoldingPass {
@@ -16,12 +17,15 @@ impl OptimizationPass for ConstantFoldingPass {
 
     fn execute(&mut self) -> Result<u32, PassError> {
         // This would be implemented to work with the graph
-        todo!("Execute constant folding pass")
+        Err(PassError::NotImplemented(
+            "Execute constant folding pass".to_string(),
+        ))
     }
 
     fn can_apply(&self) -> bool {
         // Check if graph has nodes that can be constant folded
-        todo!("Check if constant folding is applicable")
+        // For now, return true to allow testing the execution flow
+        true
     }
 
     fn priority(&self) -> u32 {

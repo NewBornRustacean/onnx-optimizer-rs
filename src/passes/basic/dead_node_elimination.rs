@@ -1,6 +1,7 @@
 use crate::passes::{OptimizationPass, error::PassError};
 
 /// Dead node elimination pass
+#[derive(Debug, Clone)]
 pub struct DeadNodeEliminationPass;
 
 impl DeadNodeEliminationPass {
@@ -15,11 +16,14 @@ impl OptimizationPass for DeadNodeEliminationPass {
     }
 
     fn execute(&mut self) -> Result<u32, PassError> {
-        todo!("Execute dead node elimination pass")
+        Err(PassError::NotImplemented(
+            "Execute dead node elimination pass".to_string(),
+        ))
     }
 
     fn can_apply(&self) -> bool {
-        todo!("Check if dead node elimination is applicable")
+        // For now, return true to allow testing the execution flow
+        true
     }
 
     fn priority(&self) -> u32 {

@@ -1,3 +1,4 @@
+use crate::utils::config::OptimizationConfig;
 use crate::{
     graph::Graph,
     graph::{
@@ -7,7 +8,6 @@ use crate::{
     },
     passes::{error::PassError, traits::BasicOptimization},
 };
-use crate::utils::config::OptimizationConfig;
 use std::collections::HashSet;
 
 /// Statistics collected during optimization
@@ -26,8 +26,6 @@ pub struct OptimizationStats {
     /// Number of optimization passes executed
     pub passes_executed: u32,
 }
-
-
 
 /// Single-threaded optimization executor that owns the graph
 ///
