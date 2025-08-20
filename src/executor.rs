@@ -43,3 +43,18 @@ pub struct OptimizationExecutor {
     /// Statistics collected during optimization
     stats: OptimizationStats,
 }
+
+
+impl OptimizationExecutor {
+    pub fn new(graph: Graph, config: OptimizationConfig) -> Self {
+        Self {
+            graph,
+            config,
+            stats: OptimizationStats::default(),
+            cached_topo_order: None,
+            dirty_nodes: HashSet::new(),
+        }
+    }
+
+    
+}
