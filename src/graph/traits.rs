@@ -9,6 +9,9 @@ pub trait GraphView {
     /// Get tensor data by ValueId
     fn tensor(&self, id: ValueId) -> Option<&Tensor>;
 
+    /// Get a snapshot list of all node IDs in the graph
+    fn node_ids(&self) -> Vec<NodeId>;
+
     /// Get input values for a node
     fn inputs(&self, node: NodeId) -> &[ValueId];
 
@@ -44,7 +47,7 @@ pub trait GraphEdit: GraphView {
 }
 
 /// Utility trait for graph analysis operations
-pub trait GraphAnalysis {
+pub trait GraphAnalysis: GraphView {
     /// Get or compute the topological order of nodes
     fn get_topological_order(&mut self) -> Result<&[NodeId], GraphError>;
 
@@ -65,7 +68,7 @@ pub trait GraphAnalysis {
 }
 
 /// Utility trait for graph modification operations
-pub trait GraphModification {
+pub trait GraphModification: GraphView {
     /// Compute the result of a constant operation
     fn compute_constant_result(&self, node_id: NodeId) -> Result<Tensor, GraphError>;
 

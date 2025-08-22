@@ -4,11 +4,11 @@ pub mod passes;
 pub mod utils;
 
 pub use executor::OptimizationExecutor;
-pub use graph::{Graph, GraphView, NodeId, OpKind, Tensor, NodeAttrValue, ValueId, DataType, Node};
-pub use passes::{
-    error::PassError,
-    traits::BasicOptimization,
+pub use graph::{
+    DataType, Graph, GraphView, Node, NodeAttrValue, NodeId, OpKind, Tensor, ValueId,
+    error::GraphError,
 };
+pub use passes::{error::PassError, traits::BasicOptimization};
 pub use utils::{
     config::{OptimizationConfig, OptimizationConfigBuilder},
     error::OnnxOptError,

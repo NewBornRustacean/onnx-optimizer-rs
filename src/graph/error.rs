@@ -1,5 +1,5 @@
 // Error types specific to executor operations
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum GraphError {
     #[error("Graph contains cycles")]
     CyclicGraph,

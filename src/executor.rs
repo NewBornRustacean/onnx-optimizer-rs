@@ -3,11 +3,12 @@ use crate::{
     graph::Graph,
     graph::{
         error::GraphError,
-        objects::{NodeId, OpKind, Tensor},
-        traits::{GraphAnalysis, GraphModification},
+        objects::{Node, NodeId, OpKind, Tensor, ValueId},
+        traits::{GraphAnalysis, GraphModification, GraphView},
     },
     passes::{error::PassError, traits::BasicOptimization},
 };
+use petgraph::algo::toposort;
 use std::collections::HashSet;
 
 /// Statistics collected during optimization
@@ -44,6 +45,43 @@ pub struct OptimizationExecutor {
     stats: OptimizationStats,
 }
 
+impl GraphView for OptimizationExecutor {
+    fn node(&self, id: NodeId) -> Option<&Node> {
+        self.graph.node(id)
+    }
+
+    fn tensor(&self, id: ValueId) -> Option<&Tensor> {
+        self.graph.tensor(id)
+    }
+
+    fn node_ids(&self) -> Vec<NodeId> {
+        self.graph.node_ids()
+    }
+
+    fn inputs(&self, node: NodeId) -> &[ValueId] {
+        self.graph.inputs(node)
+    }
+
+    fn outputs(&self, node: NodeId) -> &[ValueId] {
+        self.graph.outputs(node)
+    }
+
+    fn producer(&self, value: ValueId) -> Option<NodeId> {
+        self.graph.producer(value)
+    }
+
+    fn consumers(&self, value: ValueId) -> Vec<NodeId> {
+        self.graph.consumers(value)
+    }
+
+    fn graph_inputs(&self) -> &[ValueId] {
+        self.graph.graph_inputs()
+    }
+
+    fn graph_outputs(&self) -> &[ValueId] {
+        self.graph.graph_outputs()
+    }
+}
 
 impl OptimizationExecutor {
     pub fn new(graph: Graph, config: OptimizationConfig) -> Self {
@@ -56,5 +94,122 @@ impl OptimizationExecutor {
         }
     }
 
-    
+    /// Execute a single optimization pass
+    pub fn execute_pass<P: BasicOptimization>(&mut self, pass: &mut P) -> Result<(), PassError> {
+        // Get topological order for the pass
+        let _topo_order =
+            self.get_topological_order().map_err(|e| PassError::GraphOperationFailed {
+                details: format!("Failed to compute topological order: {}", e),
+            })?;
+
+        // Execute specific optimization methods - this is a placeholder
+        // In practice, you'd determine which specific optimization to run
+        let _changes = pass.constant_folding()?;
+
+        // Update statistics
+        self.stats.passes_executed += 1;
+
+        Ok(())
+    }
+
+    /// Execute multiple optimization passes in sequence
+    pub fn execute_passes<P: BasicOptimization>(
+        &mut self,
+        passes: &mut [P],
+    ) -> Result<(), PassError> {
+        for pass in passes {
+            self.execute_pass(pass)?;
+        }
+        Ok(())
+    }
+
+    /// Get the current optimization configuration
+    pub fn config(&self) -> &OptimizationConfig {
+        &self.config
+    }
+}
+
+impl GraphAnalysis for OptimizationExecutor {
+    fn get_topological_order(&mut self) -> Result<&[NodeId], GraphError> {
+        // ONNX specification mandates that nodes
+        // must be topologically sorted (see github.com/onnx/onnx/issues/3865).
+        let current_node_count = self.graph.node_count();
+
+        // Check if cache is valid: exists and has correct number of nodes
+        let cache_valid = self
+            .cached_topo_order
+            .as_ref()
+            .map(|order| order.len() == current_node_count)
+            .unwrap_or(false);
+
+        match cache_valid {
+            false => {
+                let order =
+                    toposort(&self.graph.nodes, None).map_err(|_| GraphError::CyclicGraph)?;
+
+                Ok(self.cached_topo_order.insert(order))
+            }
+            true => Ok(self.cached_topo_order.as_ref().unwrap()),
+        }
+    }
+
+    fn invalidate_topology(&mut self) {
+        self.cached_topo_order = None;
+    }
+
+    fn can_fold_constant(&self, _node_id: NodeId) -> bool {
+        // Placeholder – real logic will inspect node and inputs
+        true
+    }
+
+    fn is_dead_node(&self, _node_id: NodeId) -> bool {
+        // Placeholder – real logic will do reachability from graph outputs
+        false
+    }
+
+    fn supports_constant_folding(_op_kind: &OpKind) -> bool {
+        // Placeholder – whitelist ops that are pure and evaluable
+        true
+    }
+
+    fn validate_graph(&self) -> Result<(), GraphError> {
+        // Placeholder – ensure basic invariants
+        Ok(())
+    }
+}
+
+impl GraphModification for OptimizationExecutor {
+    fn compute_constant_result(&self, _node_id: NodeId) -> Result<Tensor, GraphError> {
+        // Placeholder – real implementation would evaluate the constant operation
+        todo!("Constant computation not yet implemented")
+    }
+
+    fn replace_with_constant(
+        &mut self,
+        _node_id: NodeId,
+        _constant: Tensor,
+    ) -> Result<(), GraphError> {
+        // Placeholder – real implementation would replace node with constant
+        // This modifies graph structure, so invalidate topology cache
+        self.invalidate_topology();
+        todo!("Constant replacement not yet implemented")
+    }
+
+    fn remove_node(&mut self, node_id: NodeId) -> Result<(), GraphError> {
+        // Remove node using the underlying graph's remove_node method
+        // We need to use GraphEdit trait method
+        use crate::graph::traits::GraphEdit;
+        self.graph.remove_node(node_id);
+
+        // Graph structure changed, invalidate topology cache
+        self.invalidate_topology();
+        Ok(())
+    }
+
+    fn bypass_node(&mut self, _node_id: NodeId) -> Result<(), GraphError> {
+        // Placeholder – real implementation would connect inputs directly to outputs
+        // This modifies graph structure, so invalidate topology cache
+        self.invalidate_topology();
+        todo!("Node bypassing not yet implemented")
+    }
 }

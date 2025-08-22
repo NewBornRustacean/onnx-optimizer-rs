@@ -1,4 +1,4 @@
-use crate::passes::{OptimizationPass, error::PassError};
+use crate::passes::{error::PassError, traits::OptimizationPass};
 
 /// Constant folding optimization pass
 #[derive(Debug, Clone)]
@@ -16,10 +16,9 @@ impl OptimizationPass for ConstantFoldingPass {
     }
 
     fn execute(&mut self) -> Result<u32, PassError> {
-        // This would be implemented to work with the graph
-        Err(PassError::NotImplemented(
-            "Execute constant folding pass".to_string(),
-        ))
+        // No-op baseline implementation: returns 0 changes.
+        // Extend this to perform actual constant folding over the graph.
+        Ok(0)
     }
 
     fn can_apply(&self) -> bool {

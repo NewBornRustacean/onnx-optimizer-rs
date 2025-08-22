@@ -33,18 +33,6 @@ macro_rules! register_passes {
     };
 }
 
-/// Macro to implement PassFactory for a single pass (for backwards compatibility)
-/// This just forwards to the register_passes! macro
-macro_rules! impl_pass_factory {
-    ($pass_type:ty) => {
-        impl PassFactory<$pass_type> for $pass_type {
-            fn create() -> $pass_type {
-                <$pass_type>::new()
-            }
-        }
-    };
-}
-
 // Register all pass types in one place - just add new passes to this list.
 register_passes!(
     ConstantFoldingPass,
