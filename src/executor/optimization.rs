@@ -1,15 +1,16 @@
-use crate::utils::config::OptimizationConfig;
+use std::collections::HashSet;
+
 use crate::{
-    graph::Graph,
+    utils::config::OptimizationConfig,
     graph::{
+        Graph,
         error::GraphError,
         objects::{Node, NodeId, OpKind, Tensor, ValueId},
-        traits::{GraphAnalysis, GraphModification, GraphView},
+        traits::{GraphAnalysis, GraphView},
     },
-    passes::{error::PassError, traits::BasicOptimization},
+    passes::{error::PassError, traits::OptimizationPass},
 };
 use petgraph::algo::toposort;
-use std::collections::HashSet;
 
 /// Statistics collected during optimization
 #[derive(Debug, Default, Clone)]
@@ -34,15 +35,15 @@ pub struct OptimizationStats {
 /// and returns the optimized graph.
 pub struct OptimizationExecutor {
     /// The graph being optimized (owned)
-    graph: Graph,
+    pub graph: Graph,
     /// Cached topological order for efficient traversal
-    cached_topo_order: Option<Vec<NodeId>>,
+    pub cached_topo_order: Option<Vec<NodeId>>,
     /// Nodes that have been modified and may need topology recalculation
-    dirty_nodes: HashSet<NodeId>,
+    pub dirty_nodes: HashSet<NodeId>,
     /// Configuration for optimization behavior
-    config: OptimizationConfig,
+    pub config: OptimizationConfig,
     /// Statistics collected during optimization
-    stats: OptimizationStats,
+    pub stats: OptimizationStats,
 }
 
 impl GraphView for OptimizationExecutor {
@@ -94,38 +95,8 @@ impl OptimizationExecutor {
         }
     }
 
-    /// Execute a single optimization pass
-    pub fn execute_pass<P: BasicOptimization>(&mut self, pass: &mut P) -> Result<(), PassError> {
-        // Get topological order for the pass
-        let _topo_order =
-            self.get_topological_order().map_err(|e| PassError::GraphOperationFailed {
-                details: format!("Failed to compute topological order: {}", e),
-            })?;
-
-        // Execute specific optimization methods - this is a placeholder
-        // In practice, you'd determine which specific optimization to run
-        let _changes = pass.constant_folding()?;
-
-        // Update statistics
-        self.stats.passes_executed += 1;
-
-        Ok(())
-    }
-
-    /// Execute multiple optimization passes in sequence
-    pub fn execute_passes<P: BasicOptimization>(
-        &mut self,
-        passes: &mut [P],
-    ) -> Result<(), PassError> {
-        for pass in passes {
-            self.execute_pass(pass)?;
-        }
-        Ok(())
-    }
-
-    /// Get the current optimization configuration
-    pub fn config(&self) -> &OptimizationConfig {
-        &self.config
+    pub fn execute<P: OptimizationPass>(&mut self, passes: &mut [P]) -> Result<(), PassError> {
+        todo!()
     }
 }
 
@@ -175,41 +146,5 @@ impl GraphAnalysis for OptimizationExecutor {
     fn validate_graph(&self) -> Result<(), GraphError> {
         // Placeholder – ensure basic invariants
         Ok(())
-    }
-}
-
-impl GraphModification for OptimizationExecutor {
-    fn compute_constant_result(&self, _node_id: NodeId) -> Result<Tensor, GraphError> {
-        // Placeholder – real implementation would evaluate the constant operation
-        todo!("Constant computation not yet implemented")
-    }
-
-    fn replace_with_constant(
-        &mut self,
-        _node_id: NodeId,
-        _constant: Tensor,
-    ) -> Result<(), GraphError> {
-        // Placeholder – real implementation would replace node with constant
-        // This modifies graph structure, so invalidate topology cache
-        self.invalidate_topology();
-        todo!("Constant replacement not yet implemented")
-    }
-
-    fn remove_node(&mut self, node_id: NodeId) -> Result<(), GraphError> {
-        // Remove node using the underlying graph's remove_node method
-        // We need to use GraphEdit trait method
-        use crate::graph::traits::GraphEdit;
-        self.graph.remove_node(node_id);
-
-        // Graph structure changed, invalidate topology cache
-        self.invalidate_topology();
-        Ok(())
-    }
-
-    fn bypass_node(&mut self, _node_id: NodeId) -> Result<(), GraphError> {
-        // Placeholder – real implementation would connect inputs directly to outputs
-        // This modifies graph structure, so invalidate topology cache
-        self.invalidate_topology();
-        todo!("Node bypassing not yet implemented")
     }
 }
