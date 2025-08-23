@@ -7,7 +7,7 @@ use crate::{
         objects::{Node, NodeId, OpKind, Tensor, ValueId},
         traits::{GraphAnalysis, GraphView},
     },
-    passes::{error::PassError, traits::OptimizationPass},
+    passes::{error::PassError, traits::{OptimizationPass, PassCategory}},
     utils::config::OptimizationConfig,
 };
 use petgraph::algo::toposort;
@@ -95,8 +95,69 @@ impl OptimizationExecutor {
         }
     }
 
-    pub fn execute<P: OptimizationPass>(&mut self, _passes: &mut [P]) -> Result<(), PassError> {
-        todo!()
+    /// Execute passes once (single sweep)
+    pub fn execute_passes(
+        &mut self,
+        passes: &[Box<dyn OptimizationPass>],
+    ) -> Result<u32, PassError> {
+        let mut total_changes = 0;
+        for pass in passes {
+            let changes = pass.execute(&mut self.graph)?;
+            total_changes += changes;
+            self.stats.passes_executed += 1;
+
+            // Update specific stats based on pass category
+            match pass.category() {
+                PassCategory::ConstantFolding => self.stats.constants_folded += changes,
+                PassCategory::DeadCodeElimination => self.stats.dead_nodes_eliminated += changes,
+                PassCategory::IdentityElimination => self.stats.identity_nodes_removed += changes,
+                PassCategory::DropoutElimination => self.stats.dropout_nodes_removed += changes,
+                PassCategory::OperatorFusion => self.stats.operators_fused += changes,
+                PassCategory::Other => {
+                    // Could add a generic "other_optimizations" counter if needed
+                }
+            }
+        }
+        Ok(total_changes)
+    }
+
+    /// Execute until fixed point (no more changes) - this is the key ONNX Optimizer pattern
+    pub fn execute_fixed_point(
+        &mut self,
+        passes: &[Box<dyn OptimizationPass>],
+        max_iterations: Option<u32>,
+    ) -> Result<u32, PassError> {
+        let mut total_changes = 0;
+        let max_iters = max_iterations.unwrap_or(100);
+
+        for _iteration in 0..max_iters {
+            let changes = self.execute_passes(passes)?;
+            total_changes += changes;
+
+            if changes == 0 {
+                // Fixed point reached - no more optimizations possible
+                break;
+            }
+
+            // Invalidate topology cache since graph changed
+            if changes > 0 {
+                self.invalidate_topology();
+            }
+        }
+
+        Ok(total_changes)
+    }
+
+    /// Simple entrypoint for single pass execution
+    pub fn execute_single_pass(&mut self, pass: &dyn OptimizationPass) -> Result<u32, PassError> {
+        let changes = pass.execute(&mut self.graph)?;
+        self.stats.passes_executed += 1;
+
+        if changes > 0 {
+            self.invalidate_topology();
+        }
+
+        Ok(changes)
     }
 }
 

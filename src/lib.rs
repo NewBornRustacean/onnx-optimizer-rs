@@ -8,7 +8,7 @@ pub use graph::{
     DataType, Graph, GraphView, Node, NodeAttrValue, NodeId, OpKind, Tensor, ValueId,
     error::GraphError,
 };
-pub use passes::{error::PassError, traits::BasicOptimization};
+pub use passes::{error::PassError, traits::{OptimizationPass, PassCategory}};
 pub use utils::{
     config::{OptimizationConfig, OptimizationConfigBuilder},
     error::OnnxOptError,

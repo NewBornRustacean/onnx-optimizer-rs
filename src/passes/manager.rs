@@ -1,8 +1,12 @@
-use crate::passes::{
-    OptimizationPass,
-    basic::{ConstantFoldingPass, DeadNodeEliminationPass},
-    error::PassError,
-    fusion::ConvBatchNormFusionPass,
+use crate::{
+    graph::Graph,
+    passes::{
+        OptimizationPass,
+        basic::{ConstantFoldingPass, DeadNodeEliminationPass},
+        error::PassError,
+        fusion::ConvBatchNormFusionPass,
+        traits::PassCategory,
+    },
 };
 
 /// Trait for pass factories that can create passes with compile-time type information
@@ -43,7 +47,7 @@ register_passes!(
 /// Pass registry that doesn't rely on global state
 #[derive(Debug, Clone)]
 pub struct PassRegistry {
-    pass_names: Vec<String>,
+    pub pass_names: Vec<String>,
 }
 
 impl PassRegistry {
@@ -72,11 +76,6 @@ impl PassRegistry {
         self.pass_names.iter().any(|n| n == name)
     }
 
-    /// Get all available pass names
-    pub fn available_passes(&self) -> &[String] {
-        &self.pass_names
-    }
-
     /// Create a pass by name using generics
     pub fn create_pass<T>(&self, name: &str) -> Option<T>
     where
@@ -99,7 +98,7 @@ impl Default for PassRegistry {
 #[derive(Debug, Clone)]
 pub struct PassManager<T = ()> {
     passes: T,
-    registry: PassRegistry,
+    pub registry: PassRegistry,
 }
 
 impl PassManager<()> {
@@ -120,7 +119,6 @@ impl PassManager<()> {
 }
 
 impl<T> PassManager<T> {
-    /// Add a pass to the manager (builder pattern)
     pub fn add_pass<P: OptimizationPass>(self, pass: P) -> PassManager<(T, P)> {
         PassManager {
             passes: (self.passes, pass),
@@ -128,39 +126,12 @@ impl<T> PassManager<T> {
         }
     }
 
-    /// Create and add a pass by name using generics (builder pattern)
-    pub fn add_pass_by_name<P>(self, name: &str) -> Result<PassManager<(T, P)>, PassError>
-    where
-        P: OptimizationPass + PassFactory<P>,
-    {
-        if let Some(pass) = self.registry.create_pass::<P>(name) {
-            Ok(self.add_pass(pass))
-        } else {
-            Err(PassError::PassNotApplicable(name.to_string()))
-        }
-    }
-
-    /// Get a reference to the registry
-    pub fn registry(&self) -> &PassRegistry {
-        &self.registry
-    }
-
-    /// Get all available pass names from registry
-    pub fn available_passes(&self) -> Vec<&str> {
-        self.registry.available_passes().iter().map(|s| s.as_str()).collect()
-    }
-
     /// Execute the passes with compile-time type information
-    pub fn execute(self) -> Result<(T, u32), PassError>
+    pub fn execute(self, graph: &mut Graph) -> Result<(T, u32), PassError>
     where
         T: ExecutablePasses,
     {
-        self.passes.execute_all()
-    }
-
-    /// Get the passes (consuming the manager)
-    pub fn into_passes(self) -> T {
-        self.passes
+        self.passes.execute_all(graph)
     }
 }
 
@@ -172,47 +143,43 @@ impl Default for PassManager<()> {
 
 /// Trait for executing passes with compile-time type information
 pub trait ExecutablePasses {
-    fn execute_all(self) -> Result<(Self, u32), PassError>
+    fn execute_all(self, graph: &mut Graph) -> Result<(Self, u32), PassError>
     where
         Self: Sized;
 }
 
 // Implement ExecutablePasses for unit type (empty passes)
 impl ExecutablePasses for () {
-    fn execute_all(self) -> Result<(Self, u32), PassError> {
+    fn execute_all(self, _graph: &mut Graph) -> Result<(Self, u32), PassError> {
         Ok((self, 0))
     }
 }
 
 // Implement ExecutablePasses for single pass
 impl<T: OptimizationPass> ExecutablePasses for T {
-    fn execute_all(mut self) -> Result<(Self, u32), PassError> {
-        let changes = if self.can_apply() { self.execute()? } else { 0 };
+    fn execute_all(self, graph: &mut Graph) -> Result<(Self, u32), PassError> {
+        let changes = self.execute(graph)?;
         Ok((self, changes))
     }
 }
 
 // Implement ExecutablePasses for pass tuples
 impl<T: ExecutablePasses, P: OptimizationPass> ExecutablePasses for (T, P) {
-    fn execute_all(self) -> Result<(Self, u32), PassError> {
-        let (passes, mut pass) = self;
-        let (passes, changes1) = passes.execute_all()?;
+    fn execute_all(self, graph: &mut Graph) -> Result<(Self, u32), PassError> {
+        let (passes, pass) = self;
+        let (passes, changes1) = passes.execute_all(graph)?;
 
-        let changes2 = if pass.can_apply() { pass.execute()? } else { 0 };
+        let changes2 = pass.execute(graph)?;
 
         Ok(((passes, pass), changes1 + changes2))
     }
 }
 
 impl<T: OptimizationPass> ExecutablePasses for &mut [T] {
-    fn execute_all(self) -> Result<(Self, u32), PassError> {
+    fn execute_all(self, graph: &mut Graph) -> Result<(Self, u32), PassError> {
         let mut total_changes = 0;
-        for pass in self.iter_mut() {
-            if pass.can_apply() {
-                total_changes += pass.execute()?;
-            } else {
-                return Err(PassError::PassNotApplicable(pass.pass_name().to_string()));
-            }
+        for pass in self.iter() {
+            total_changes += pass.execute(graph)?;
         }
         Ok((self, total_changes))
     }
@@ -222,37 +189,26 @@ impl<T: OptimizationPass> ExecutablePasses for &mut [T] {
 mod tests {
     use super::*;
 
-    // Mock optimization pass for testing
+    // Mock optimization pass for testing using BasePass pattern
     #[derive(Debug, Clone)]
     struct MockPass {
-        name: String,
-        should_apply: bool,
+        base: crate::passes::base::BasePass,
         execution_result: Result<u32, PassError>,
-        priority: u32,
     }
 
     impl MockPass {
         fn new() -> Self {
             Self {
-                name: "mock_pass".to_string(),
-                should_apply: true,
+                base: crate::passes::base::BasePass::new("mock_pass", 1),
                 execution_result: Ok(1), // Default: successful execution with 1 change
-                priority: 1,
             }
         }
 
         fn new_with_name(name: &str) -> Self {
             Self {
-                name: name.to_string(),
-                should_apply: true,
+                base: crate::passes::base::BasePass::new(name, 1),
                 execution_result: Ok(1), // Default: successful execution with 1 change
-                priority: 1,
             }
-        }
-
-        fn with_apply(mut self, should_apply: bool) -> Self {
-            self.should_apply = should_apply;
-            self
         }
 
         fn with_result(mut self, result: Result<u32, PassError>) -> Self {
@@ -261,26 +217,28 @@ mod tests {
         }
 
         fn with_priority(mut self, priority: u32) -> Self {
-            self.priority = priority;
+            self.base.priority = priority;
             self
+        }
+    }
+
+    impl Default for MockPass {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
     impl OptimizationPass for MockPass {
         fn pass_name(&self) -> String {
-            self.name.clone()
+            self.base.name.clone()
         }
 
-        fn execute(&mut self) -> Result<u32, PassError> {
+        fn category(&self) -> PassCategory {
+            PassCategory::Other
+        }
+
+        fn execute(&self, _graph: &mut Graph) -> Result<u32, PassError> {
             self.execution_result.clone()
-        }
-
-        fn can_apply(&self) -> bool {
-            self.should_apply
-        }
-
-        fn priority(&self) -> u32 {
-            self.priority
         }
     }
 
@@ -315,21 +273,21 @@ mod tests {
 
         // Test empty registry
         assert!(!registry.contains("test_pass"));
-        assert_eq!(registry.available_passes().len(), 0);
+        assert_eq!(registry.pass_names.len(), 0);
 
         // Test adding passes
         registry.register_pass("test_pass");
         assert!(registry.contains("test_pass"));
-        assert_eq!(registry.available_passes().len(), 1);
+        assert_eq!(registry.pass_names.len(), 1);
 
         // Test duplicate prevention
         registry.register_pass("test_pass");
-        assert_eq!(registry.available_passes().len(), 1); // Should not duplicate
+        assert_eq!(registry.pass_names.len(), 1); // Should not duplicate
 
         // Test multiple passes
         registry.register_pass("another_pass");
         assert!(registry.contains("another_pass"));
-        assert_eq!(registry.available_passes().len(), 2);
+        assert_eq!(registry.pass_names.len(), 2);
     }
 
     #[test]
@@ -337,11 +295,11 @@ mod tests {
         let registry = create_mock_registry();
         let manager = PassManager::with_registry(registry);
 
-        let available_passes = manager.available_passes();
+        let available_passes = &manager.registry.pass_names;
         assert_eq!(available_passes.len(), 3);
-        assert!(available_passes.contains(&"mock_pass_1"));
-        assert!(available_passes.contains(&"mock_pass_2"));
-        assert!(available_passes.contains(&"constant_folding"));
+        assert!(available_passes.contains(&"mock_pass_1".to_string()));
+        assert!(available_passes.contains(&"mock_pass_2".to_string()));
+        assert!(available_passes.contains(&"constant_folding".to_string()));
     }
 
     #[test]
@@ -352,7 +310,7 @@ mod tests {
 
         // Type system ensures this compiles - the passes are embedded in the type
         // Type: PassManager<(((), MockPass), MockPass)>
-        let _available = manager.available_passes();
+        let _available = &manager.registry.pass_names;
     }
 
     #[test]
@@ -363,14 +321,16 @@ mod tests {
             .add_pass(MockPass::new_with_name("second_pass"));
 
         // Test execution
-        let result = manager.execute();
+        let mut graph = Graph::new();
+        let result = manager.execute(&mut graph);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_executable_passes_unit() {
         let unit = ();
-        let result = unit.execute_all();
+        let mut graph = Graph::new();
+        let result = unit.execute_all(&mut graph);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), ((), 0));
     }
@@ -378,7 +338,8 @@ mod tests {
     #[test]
     fn test_executable_passes_single_mock() {
         let pass = MockPass::new_with_name("single_test").with_result(Ok(7));
-        let result = pass.execute_all();
+        let mut graph = Graph::new();
+        let result = pass.execute_all(&mut graph);
 
         assert!(result.is_ok());
         let (returned_pass, changes) = result.unwrap();
@@ -393,7 +354,8 @@ mod tests {
             MockPass::new_with_name("second").with_result(Ok(4)),
         );
 
-        let result = passes.execute_all();
+        let mut graph = Graph::new();
+        let result = passes.execute_all(&mut graph);
         assert!(result.is_ok());
 
         let ((p1, p2), total_changes) = result.unwrap();
@@ -410,7 +372,8 @@ mod tests {
             MockPass::new_with_name("second_pass").with_result(Ok(2)),
         );
 
-        let result = passes.execute_all();
+        let mut graph = Graph::new();
+        let result = passes.execute_all(&mut graph);
         assert!(result.is_ok());
 
         // Order is guaranteed by type system: first_pass executes before second_pass
@@ -425,7 +388,8 @@ mod tests {
         let error_pass = MockPass::new_with_name("error_pass")
             .with_result(Err(PassError::PassNotApplicable("test error".to_string())));
 
-        let result = error_pass.execute_all();
+        let mut graph = Graph::new();
+        let result = error_pass.execute_all(&mut graph);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -437,14 +401,15 @@ mod tests {
     fn test_mixed_successful_and_non_applicable_passes() {
         let passes = (
             MockPass::new_with_name("success").with_result(Ok(5)),
-            MockPass::new_with_name("non_applicable").with_apply(false).with_result(Ok(10)),
+            MockPass::new_with_name("non_applicable").with_result(Ok(10)),
         );
 
-        let result = passes.execute_all();
+        let mut graph = Graph::new();
+        let result = passes.execute_all(&mut graph);
         assert!(result.is_ok());
 
         let (_, total_changes) = result.unwrap();
-        assert_eq!(total_changes, 5); // Only the applicable pass contributes
+        assert_eq!(total_changes, 15); // 5 + 10 (can_apply removed from design)
     }
 
     #[test]
@@ -457,7 +422,7 @@ mod tests {
 
         // Type: PassManager<((((), MockPass), MockPass), MockPass)>
         // This ensures compile-time type safety
-        let _passes = manager.available_passes();
+        let _passes = &manager.registry.pass_names;
     }
 
     #[test]
@@ -467,8 +432,7 @@ mod tests {
 
         // MockPass는 register_passes! 매크로로 등록되지 않았으므로
         // registry에는 없지만 create() 메서드는 동작해야 함
-        let result = manager.add_pass_by_name::<MockPass>("mock_pass");
-        assert!(result.is_err()); // Registry에 없으므로 실패해야 함
+        assert!(!manager.registry.pass_names.contains(&"mock_pass".to_string()));
 
         // 하지만 직접 생성은 가능해야 함 (macro-generated factory)
         let mock_pass = MockPass::create();
@@ -479,7 +443,7 @@ mod tests {
             .add_pass(MockPass::create()) // Macro-generated factory
             .add_pass(MockPass::new_with_name("test_pass")); // Direct constructor
 
-        let _available = mock_manager.available_passes();
+        let _available = &mock_manager.registry.pass_names;
     }
 
     #[test]
@@ -492,12 +456,13 @@ mod tests {
             .add_pass(MockPass::new_with_name("first_mock"))
             .add_pass(MockPass::new_with_name("second_mock"));
 
-        let _available = manager.available_passes();
+        let _available = &manager.registry.pass_names;
 
         // Method 2: Execute directly
+        let mut graph = Graph::new();
         let result = PassManager::with_registry(registry)
             .add_pass(MockPass::new_with_name("test_pass").with_result(Ok(3)))
-            .execute();
+            .execute(&mut graph);
 
         assert!(result.is_ok());
         let (_, changes) = result.unwrap();

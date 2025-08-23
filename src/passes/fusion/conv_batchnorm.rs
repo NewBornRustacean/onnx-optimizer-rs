@@ -1,5 +1,7 @@
-use crate::passes::OptimizationPass;
-use crate::passes::error::PassError;
+use crate::{
+    graph::Graph,
+    passes::{OptimizationPass, error::PassError, traits::PassCategory},
+};
 
 /// Fusion pass for Conv + BatchNorm operations
 pub struct ConvBatchNormFusionPass;
@@ -15,21 +17,23 @@ impl OptimizationPass for ConvBatchNormFusionPass {
         "conv_batchnorm_fusion".to_string()
     }
 
-    fn execute(&mut self) -> Result<u32, PassError> {
-        // This would identify Conv->BatchNorm patterns and fuse them
+    fn category(&self) -> PassCategory {
+        PassCategory::OperatorFusion
+    }
+
+    fn execute(&self, graph: &mut Graph) -> Result<u32, PassError> {
+        // TODO: Implement actual Conv+BatchNorm fusion logic
+        // For now, return not implemented error
+        //
+        // Real implementation would:
+        // 1. Find Conv -> BatchNorm patterns in the graph
+        // 2. Merge BatchNorm parameters into Conv weights/bias
+        // 3. Remove the BatchNorm node and rewire connections
+        // 4. Return the number of fusions performed
+        let _ = graph; // Suppress unused warning
         Err(PassError::NotImplemented(
             "Execute Conv+BatchNorm fusion pass".to_string(),
         ))
-    }
-
-    fn can_apply(&self) -> bool {
-        // Check if graph has Conv->BatchNorm patterns that can be fused
-        // For now, return true to allow testing the execution flow
-        true
-    }
-
-    fn priority(&self) -> u32 {
-        3 // Run after basic optimizations
     }
 }
 

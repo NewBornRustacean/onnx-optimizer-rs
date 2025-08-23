@@ -1,39 +1,41 @@
-use crate::passes::{error::PassError, traits::OptimizationPass};
+use crate::{
+    graph::Graph,
+    passes::{
+        base::{BasePass, define_pass},
+        error::PassError,
+        traits::{OptimizationPass, PassCategory},
+    },
+};
 
-/// Constant folding optimization pass
-#[derive(Debug, Clone)]
-pub struct ConstantFoldingPass;
-
-impl ConstantFoldingPass {
-    pub fn new() -> Self {
-        Self
+// Use the define_pass macro to create the struct with BasePass composition
+define_pass! {
+    /// Constant folding optimization pass
+    pub struct ConstantFoldingPass {
+        pass_name: "constant_folding",
+        priority: 1,
     }
 }
 
+// Implement OptimizationPass with new stateless design
 impl OptimizationPass for ConstantFoldingPass {
     fn pass_name(&self) -> String {
-        "constant_folding".to_string()
+        self.base.name.clone()
     }
 
-    fn execute(&mut self) -> Result<u32, PassError> {
-        // No-op baseline implementation: returns 0 changes.
-        // Extend this to perform actual constant folding over the graph.
+    fn category(&self) -> PassCategory {
+        PassCategory::ConstantFolding
+    }
+
+    fn execute(&self, graph: &mut Graph) -> Result<u32, PassError> {
+        // TODO: Implement actual constant folding logic
+        // For now, return 0 (no changes made)
+        //
+        // Real implementation would:
+        // 1. Iterate through all nodes in topological order
+        // 2. Check if all inputs are constants
+        // 3. If yes, evaluate the operation and replace with constant
+        // 4. Return the number of nodes that were folded
+        let _ = graph; // Suppress unused warning
         Ok(0)
-    }
-
-    fn can_apply(&self) -> bool {
-        // Check if graph has nodes that can be constant folded
-        // For now, return true to allow testing the execution flow
-        true
-    }
-
-    fn priority(&self) -> u32 {
-        1 // the lower the number the higher the priority
-    }
-}
-
-impl Default for ConstantFoldingPass {
-    fn default() -> Self {
-        Self::new()
     }
 }
