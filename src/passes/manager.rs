@@ -120,7 +120,7 @@ impl PassManager<()> {
 }
 
 impl<T> PassManager<T> {
-    /// Add a pass to the manager with compile-time type information
+    /// Add a pass to the manager (builder pattern)
     pub fn add_pass<P: OptimizationPass>(self, pass: P) -> PassManager<(T, P)> {
         PassManager {
             passes: (self.passes, pass),
@@ -128,7 +128,7 @@ impl<T> PassManager<T> {
         }
     }
 
-    /// Create and add a pass by name using generics
+    /// Create and add a pass by name using generics (builder pattern)
     pub fn add_pass_by_name<P>(self, name: &str) -> Result<PassManager<(T, P)>, PassError>
     where
         P: OptimizationPass + PassFactory<P>,
@@ -157,106 +157,16 @@ impl<T> PassManager<T> {
     {
         self.passes.execute_all()
     }
+
+    /// Get the passes (consuming the manager)
+    pub fn into_passes(self) -> T {
+        self.passes
+    }
 }
 
 impl Default for PassManager<()> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Builder for creating commonly used pass combinations
-#[derive(Debug, Clone)]
-pub struct PassManagerBuilder<T = ()> {
-    manager: PassManager<T>,
-}
-
-impl PassManagerBuilder<()> {
-    pub fn new() -> Self {
-        Self {
-            manager: PassManager::new(),
-        }
-    }
-}
-
-impl<T> PassManagerBuilder<T> {
-    /// Add a pass to the builder
-    pub fn with_pass<P: OptimizationPass>(self, pass: P) -> PassManagerBuilder<(T, P)> {
-        PassManagerBuilder {
-            manager: self.manager.add_pass(pass),
-        }
-    }
-
-    /// Add a pass by name
-    pub fn with_pass_by_name<P>(self, name: &str) -> Result<PassManagerBuilder<(T, P)>, PassError>
-    where
-        P: OptimizationPass + PassFactory<P>,
-    {
-        Ok(PassManagerBuilder {
-            manager: self.manager.add_pass_by_name::<P>(name)?,
-        })
-    }
-
-    /// Build the final PassManager
-    pub fn build(self) -> PassManager<T> {
-        self.manager
-    }
-}
-
-impl Default for PassManagerBuilder<()> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Static utility for executing passes
-#[derive(Debug, Clone)]
-pub struct PassExecutor;
-
-impl PassExecutor {
-    /// Execute a single pass
-    pub fn execute_single<T: OptimizationPass>(mut pass: T) -> Result<(T, u32), PassError> {
-        let changes = if pass.can_apply() { pass.execute()? } else { 0 };
-        Ok((pass, changes))
-    }
-
-    /// Execute multiple passes in sequence
-    pub fn execute_sequence<T1, T2>(pass1: T1, pass2: T2) -> Result<((T1, T2), u32), PassError>
-    where
-        T1: OptimizationPass,
-        T2: OptimizationPass,
-    {
-        let (pass1, changes1) = Self::execute_single(pass1)?;
-        let (pass2, changes2) = Self::execute_single(pass2)?;
-        Ok(((pass1, pass2), changes1 + changes2))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TypedPassBuilder<T> {
-    passes: T,
-}
-
-impl TypedPassBuilder<()> {
-    pub fn new() -> Self {
-        Self { passes: () }
-    }
-}
-
-impl<T> TypedPassBuilder<T> {
-    /// Add a pass to the builder with compile-time type information
-    pub fn with_pass<P: OptimizationPass>(self, pass: P) -> TypedPassBuilder<(T, P)> {
-        TypedPassBuilder {
-            passes: (self.passes, pass),
-        }
-    }
-
-    /// Execute passes with zero-cost abstractions
-    pub fn execute(self) -> Result<(T, u32), PassError>
-    where
-        T: ExecutablePasses,
-    {
-        self.passes.execute_all()
     }
 }
 
@@ -305,12 +215,6 @@ impl<T: OptimizationPass> ExecutablePasses for &mut [T] {
             }
         }
         Ok((self, total_changes))
-    }
-}
-
-impl Default for TypedPassBuilder<()> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -452,61 +356,15 @@ mod tests {
     }
 
     #[test]
-    fn test_pass_manager_builder_with_mocks() {
-        let builder = PassManagerBuilder::new()
-            .with_pass(MockPass::new_with_name("first_pass"))
-            .with_pass(MockPass::new_with_name("second_pass"));
+    fn test_pass_manager_as_builder() {
+        // Test that PassManager can work as both manager and builder
+        let manager = PassManager::new()
+            .add_pass(MockPass::new_with_name("first_pass"))
+            .add_pass(MockPass::new_with_name("second_pass"));
 
-        let _manager = builder.build();
-        // If this compiles, the builder pattern works correctly
-    }
-
-    #[test]
-    fn test_pass_executor_with_successful_mock() {
-        let pass = MockPass::new_with_name("success_pass").with_result(Ok(5));
-
-        let result = PassExecutor::execute_single(pass);
+        // Test execution
+        let result = manager.execute();
         assert!(result.is_ok());
-
-        let (returned_pass, changes) = result.unwrap();
-        assert_eq!(returned_pass.pass_name(), "success_pass");
-        assert_eq!(changes, 5);
-    }
-
-    #[test]
-    fn test_pass_executor_with_failing_mock() {
-        let pass = MockPass::new_with_name("fail_pass")
-            .with_result(Err(PassError::NotImplemented("test error".to_string())));
-
-        let result = PassExecutor::execute_single(pass);
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PassError::NotImplemented(_)));
-    }
-
-    #[test]
-    fn test_pass_executor_with_non_applicable_pass() {
-        let pass = MockPass::new_with_name("non_applicable").with_apply(false);
-
-        let result = PassExecutor::execute_single(pass);
-        assert!(result.is_ok());
-
-        let (returned_pass, changes) = result.unwrap();
-        assert_eq!(returned_pass.pass_name(), "non_applicable");
-        assert_eq!(changes, 0); // No changes because can_apply() returned false
-    }
-
-    #[test]
-    fn test_pass_executor_sequence_with_mocks() {
-        let pass1 = MockPass::new_with_name("first").with_result(Ok(2));
-        let pass2 = MockPass::new_with_name("second").with_result(Ok(3));
-
-        let result = PassExecutor::execute_sequence(pass1, pass2);
-        assert!(result.is_ok());
-
-        let ((p1, p2), total_changes) = result.unwrap();
-        assert_eq!(p1.pass_name(), "first");
-        assert_eq!(p2.pass_name(), "second");
-        assert_eq!(total_changes, 5); // 2 + 3
     }
 
     #[test]
@@ -542,19 +400,6 @@ mod tests {
         assert_eq!(p1.pass_name(), "first");
         assert_eq!(p2.pass_name(), "second");
         assert_eq!(total_changes, 7); // 3 + 4
-    }
-
-    #[test]
-    fn test_typed_pass_builder_with_mocks() {
-        let builder = TypedPassBuilder::new()
-            .with_pass(MockPass::new_with_name("builder_test_1").with_result(Ok(2)))
-            .with_pass(MockPass::new_with_name("builder_test_2").with_result(Ok(3)));
-
-        let result = builder.execute();
-        assert!(result.is_ok());
-
-        let (_, total_changes) = result.unwrap();
-        assert_eq!(total_changes, 5); // 2 + 3
     }
 
     #[test]
@@ -638,34 +483,24 @@ mod tests {
     }
 
     #[test]
-    fn test_correct_builder_pattern_usage() {
-        // Demonstrate the CORRECT way to use PassManager - without clone() and using only mocks
+    fn test_unified_pass_manager_usage() {
+        // Demonstrate PassManager as unified builder and executor
         let registry = create_mock_registry();
 
-        // Method 1: Chain multiple mock passes using builder pattern
-        let manager_chain = PassManager::with_registry(registry.clone())
+        // Method 1: Chain multiple passes using builder pattern
+        let manager = PassManager::with_registry(registry.clone())
             .add_pass(MockPass::new_with_name("first_mock"))
             .add_pass(MockPass::new_with_name("second_mock"));
 
-        // This creates a manager with type: PassManager<(((), MockPass), MockPass)>
-        let _available_in_chain = manager_chain.available_passes();
+        let _available = manager.available_passes();
 
-        // Method 2: Use PassManagerBuilder for more flexible building
-        let manager_builder = PassManagerBuilder::new()
-            .with_pass(MockPass::new_with_name("builder_mock_1"))
-            .with_pass(MockPass::new_with_name("builder_mock_2"))
-            .build();
+        // Method 2: Execute directly
+        let result = PassManager::with_registry(registry)
+            .add_pass(MockPass::new_with_name("test_pass").with_result(Ok(3)))
+            .execute();
 
-        let _available_in_builder = manager_builder.available_passes();
-
-        // Method 3: Create separate managers for different workflows (this is fine)
-        let mock_manager_1 = PassManager::with_registry(registry.clone())
-            .add_pass(MockPass::new_with_name("workflow_1"));
-
-        let mock_manager_2 =
-            PassManager::with_registry(registry).add_pass(MockPass::new_with_name("workflow_2"));
-
-        let _mock1_available = mock_manager_1.available_passes();
-        let _mock2_available = mock_manager_2.available_passes();
+        assert!(result.is_ok());
+        let (_, changes) = result.unwrap();
+        assert_eq!(changes, 3);
     }
 }
