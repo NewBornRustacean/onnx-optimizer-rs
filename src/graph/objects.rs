@@ -361,17 +361,17 @@ impl OpKind {
 #[derive(Debug)]
 pub struct Graph {
     /// Core petgraph structure - stores nodes with dependency edges
-    nodes: StableGraph<Node, ()>,
+    pub nodes: StableGraph<Node, ()>,
 
     /// Value/tensor storage
-    values: HashMap<ValueId, Tensor>,
+    pub values: HashMap<ValueId, Tensor>,
 
     /// Graph-level metadata
-    graph_input_values: Vec<ValueId>,
-    graph_output_values: Vec<ValueId>,
+    pub graph_input_values: Vec<ValueId>,
+    pub graph_output_values: Vec<ValueId>,
 
     /// Value ID generator (NodeId is managed by petgraph)
-    next_value_id: u32,
+    pub next_value_id: u32,
 }
 
 /// Attribute values that can be stored in nodes
@@ -767,6 +767,10 @@ impl GraphView for Graph {
 
     fn tensor(&self, id: ValueId) -> Option<&Tensor> {
         self.values.get(&id)
+    }
+
+    fn node_ids(&self) -> Vec<NodeId> {
+        self.nodes.node_indices().collect()
     }
 
     fn inputs(&self, node: NodeId) -> &[ValueId] {

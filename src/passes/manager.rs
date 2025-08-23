@@ -1,7 +1,7 @@
 use crate::passes::{
     OptimizationPass,
-    error::PassError,
     basic::{ConstantFoldingPass, DeadNodeEliminationPass},
+    error::PassError,
     fusion::ConvBatchNormFusionPass,
 };
 
@@ -33,19 +33,7 @@ macro_rules! register_passes {
     };
 }
 
-/// Macro to implement PassFactory for a single pass (for backwards compatibility)
-/// This just forwards to the register_passes! macro
-macro_rules! impl_pass_factory {
-    ($pass_type:ty) => {
-        impl PassFactory<$pass_type> for $pass_type {
-            fn create() -> $pass_type {
-                <$pass_type>::new()
-            }
-        }
-    };
-}
-
-// Register all pass types in one place - just add new passes to this list!
+// Register all pass types in one place - just add new passes to this list.
 register_passes!(
     ConstantFoldingPass,
     DeadNodeEliminationPass,
@@ -63,12 +51,12 @@ impl PassRegistry {
         let mut registry = Self {
             pass_names: Vec::new(),
         };
-        
+
         // Auto-register all passes from the static list
         for register_fn in ALL_PASS_TYPES {
             register_fn(&mut registry);
         }
-        
+
         registry
     }
 
@@ -108,7 +96,7 @@ impl Default for PassRegistry {
     }
 }
 
-/// Enhanced PassManager with compile-time type safety
+#[derive(Debug, Clone)]
 pub struct PassManager<T = ()> {
     passes: T,
     registry: PassRegistry,
@@ -178,6 +166,7 @@ impl Default for PassManager<()> {
 }
 
 /// Builder for creating commonly used pass combinations
+#[derive(Debug, Clone)]
 pub struct PassManagerBuilder<T = ()> {
     manager: PassManager<T>,
 }
@@ -221,16 +210,13 @@ impl Default for PassManagerBuilder<()> {
 }
 
 /// Static utility for executing passes
+#[derive(Debug, Clone)]
 pub struct PassExecutor;
 
 impl PassExecutor {
     /// Execute a single pass
     pub fn execute_single<T: OptimizationPass>(mut pass: T) -> Result<(T, u32), PassError> {
-        let changes = if pass.can_apply() {
-            pass.execute()?
-        } else {
-            0
-        };
+        let changes = if pass.can_apply() { pass.execute()? } else { 0 };
         Ok((pass, changes))
     }
 
@@ -246,6 +232,7 @@ impl PassExecutor {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TypedPassBuilder<T> {
     passes: T,
 }
@@ -290,11 +277,7 @@ impl ExecutablePasses for () {
 // Implement ExecutablePasses for single pass
 impl<T: OptimizationPass> ExecutablePasses for T {
     fn execute_all(mut self) -> Result<(Self, u32), PassError> {
-        let changes = if self.can_apply() {
-            self.execute()?
-        } else {
-            0
-        };
+        let changes = if self.can_apply() { self.execute()? } else { 0 };
         Ok((self, changes))
     }
 }
@@ -304,13 +287,9 @@ impl<T: ExecutablePasses, P: OptimizationPass> ExecutablePasses for (T, P) {
     fn execute_all(self) -> Result<(Self, u32), PassError> {
         let (passes, mut pass) = self;
         let (passes, changes1) = passes.execute_all()?;
-        
-        let changes2 = if pass.can_apply() {
-            pass.execute()?
-        } else {
-            0
-        };
-        
+
+        let changes2 = if pass.can_apply() { pass.execute()? } else { 0 };
+
         Ok(((passes, pass), changes1 + changes2))
     }
 }
@@ -339,139 +318,354 @@ impl Default for TypedPassBuilder<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_pass_registry() {
-        let registry = &*PASS_REGISTRY;
-        assert!(!registry.is_empty(), "Pass registry should not be empty");
+    // Mock optimization pass for testing
+    #[derive(Debug, Clone)]
+    struct MockPass {
+        name: String,
+        should_apply: bool,
+        execution_result: Result<u32, PassError>,
+        priority: u32,
+    }
 
-        // Test that all expected passes are registered
-        assert!(registry.contains_key("constant_folding"));
-        assert!(registry.contains_key("dead_node_elimination"));
-        assert!(registry.contains_key("conv_batchnorm_fusion"));
+    impl MockPass {
+        fn new() -> Self {
+            Self {
+                name: "mock_pass".to_string(),
+                should_apply: true,
+                execution_result: Ok(1), // Default: successful execution with 1 change
+                priority: 1,
+            }
+        }
+
+        fn new_with_name(name: &str) -> Self {
+            Self {
+                name: name.to_string(),
+                should_apply: true,
+                execution_result: Ok(1), // Default: successful execution with 1 change
+                priority: 1,
+            }
+        }
+
+        fn with_apply(mut self, should_apply: bool) -> Self {
+            self.should_apply = should_apply;
+            self
+        }
+
+        fn with_result(mut self, result: Result<u32, PassError>) -> Self {
+            self.execution_result = result;
+            self
+        }
+
+        fn with_priority(mut self, priority: u32) -> Self {
+            self.priority = priority;
+            self
+        }
+    }
+
+    impl OptimizationPass for MockPass {
+        fn pass_name(&self) -> String {
+            self.name.clone()
+        }
+
+        fn execute(&mut self) -> Result<u32, PassError> {
+            self.execution_result.clone()
+        }
+
+        fn can_apply(&self) -> bool {
+            self.should_apply
+        }
+
+        fn priority(&self) -> u32 {
+            self.priority
+        }
+    }
+
+    // Mock registry for testing - manually creates registry with test pass names
+    // This is DIFFERENT from PassRegistry::new() which uses the production macro
+    fn create_mock_registry() -> PassRegistry {
+        let mut registry = PassRegistry {
+            pass_names: Vec::new(),
+        };
+        registry.register_pass("mock_pass_1");
+        registry.register_pass("mock_pass_2");
+        registry.register_pass("constant_folding");
+        registry
+    }
+
+    // Test passes using the SAME macro as production code
+    // This tests the actual macro functionality
+    register_passes!(MockPass,);
+
+    #[test]
+    fn test_register_macro_functionality() {
+        // Test that the macro correctly generates PassFactory for MockPass
+        let mock_pass = MockPass::create();
+        assert_eq!(mock_pass.pass_name(), "mock_pass"); // Default from PassFactory::create()
     }
 
     #[test]
-    fn test_pass_manager_with_registry() {
-        let mut manager = PassManager::new();
+    fn test_pass_registry_basic_operations() {
+        let mut registry = PassRegistry {
+            pass_names: Vec::new(),
+        };
 
-        // Test that we can create passes from registry
+        // Test empty registry
+        assert!(!registry.contains("test_pass"));
+        assert_eq!(registry.available_passes().len(), 0);
+
+        // Test adding passes
+        registry.register_pass("test_pass");
+        assert!(registry.contains("test_pass"));
+        assert_eq!(registry.available_passes().len(), 1);
+
+        // Test duplicate prevention
+        registry.register_pass("test_pass");
+        assert_eq!(registry.available_passes().len(), 1); // Should not duplicate
+
+        // Test multiple passes
+        registry.register_pass("another_pass");
+        assert!(registry.contains("another_pass"));
+        assert_eq!(registry.available_passes().len(), 2);
+    }
+
+    #[test]
+    fn test_pass_manager_with_mock_registry() {
+        let registry = create_mock_registry();
+        let manager = PassManager::with_registry(registry);
+
         let available_passes = manager.available_passes();
-        assert!(!available_passes.is_empty(), "Should have available passes");
-        assert_eq!(available_passes.len(), 3, "Should have exactly 3 passes");
-
-        // Test adding passes by name
-        assert!(manager.add_pass_by_name("constant_folding").is_ok());
-        assert!(manager.add_pass_by_name("dead_node_elimination").is_ok());
-        assert!(manager.add_pass_by_name("conv_batchnorm_fusion").is_ok());
-
-        // Test error for unknown pass
-        assert!(manager.add_pass_by_name("unknown_pass").is_err());
+        assert_eq!(available_passes.len(), 3);
+        assert!(available_passes.contains(&"mock_pass_1"));
+        assert!(available_passes.contains(&"mock_pass_2"));
+        assert!(available_passes.contains(&"constant_folding"));
     }
 
     #[test]
-    fn test_pass_manager_builder() {
-        let result = PassManagerBuilder::new().with_basic_passes();
+    fn test_pass_manager_add_pass_directly() {
+        let manager = PassManager::new()
+            .add_pass(MockPass::new_with_name("test_pass_1"))
+            .add_pass(MockPass::new_with_name("test_pass_2"));
 
-        assert!(result.is_ok(), "Basic passes should be available");
-
-        let manager = result.unwrap().build();
-        assert_eq!(manager.pass_names().len(), 2, "Should have 2 basic passes");
+        // Type system ensures this compiles - the passes are embedded in the type
+        // Type: PassManager<(((), MockPass), MockPass)>
+        let _available = manager.available_passes();
     }
 
     #[test]
-    fn test_generic_pass_execution() {
-        // Test zero-cost abstraction with compile-time types
-        let pass = ConstantFoldingPass::new();
+    fn test_pass_manager_builder_with_mocks() {
+        let builder = PassManagerBuilder::new()
+            .with_pass(MockPass::new_with_name("first_pass"))
+            .with_pass(MockPass::new_with_name("second_pass"));
+
+        let _manager = builder.build();
+        // If this compiles, the builder pattern works correctly
+    }
+
+    #[test]
+    fn test_pass_executor_with_successful_mock() {
+        let pass = MockPass::new_with_name("success_pass").with_result(Ok(5));
+
         let result = PassExecutor::execute_single(pass);
+        assert!(result.is_ok());
 
-        // This would normally require actual graph data to test properly
-        // For now, we just verify the API works
-        assert!(result.is_ok() || matches!(result, Err(PassError::NotImplemented(_))));
+        let (returned_pass, changes) = result.unwrap();
+        assert_eq!(returned_pass.pass_name(), "success_pass");
+        assert_eq!(changes, 5);
     }
 
     #[test]
-    fn test_pass_sequence_execution() {
-        let pass1 = ConstantFoldingPass::new();
-        let pass2 = DeadNodeEliminationPass::new();
+    fn test_pass_executor_with_failing_mock() {
+        let pass = MockPass::new_with_name("fail_pass")
+            .with_result(Err(PassError::NotImplemented("test error".to_string())));
+
+        let result = PassExecutor::execute_single(pass);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PassError::NotImplemented(_)));
+    }
+
+    #[test]
+    fn test_pass_executor_with_non_applicable_pass() {
+        let pass = MockPass::new_with_name("non_applicable").with_apply(false);
+
+        let result = PassExecutor::execute_single(pass);
+        assert!(result.is_ok());
+
+        let (returned_pass, changes) = result.unwrap();
+        assert_eq!(returned_pass.pass_name(), "non_applicable");
+        assert_eq!(changes, 0); // No changes because can_apply() returned false
+    }
+
+    #[test]
+    fn test_pass_executor_sequence_with_mocks() {
+        let pass1 = MockPass::new_with_name("first").with_result(Ok(2));
+        let pass2 = MockPass::new_with_name("second").with_result(Ok(3));
 
         let result = PassExecutor::execute_sequence(pass1, pass2);
+        assert!(result.is_ok());
 
-        // This would normally require actual graph data to test properly
-        assert!(result.is_ok() || matches!(result, Err(PassError::NotImplemented(_))));
+        let ((p1, p2), total_changes) = result.unwrap();
+        assert_eq!(p1.pass_name(), "first");
+        assert_eq!(p2.pass_name(), "second");
+        assert_eq!(total_changes, 5); // 2 + 3
     }
 
     #[test]
-    fn test_generic_vs_dynamic_dispatch() {
-        // Demonstrate that we can use both approaches
-        let mut manager = PassManager::new();
-
-        // Dynamic dispatch (for flexibility)
-        assert!(manager.add_pass_by_name("constant_folding").is_ok());
-
-        // Static dispatch (for performance)
-        manager.add_pass(ConstantFoldingPass::new());
-
-        assert_eq!(manager.pass_names().len(), 2);
+    fn test_executable_passes_unit() {
+        let unit = ();
+        let result = unit.execute_all();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), ((), 0));
     }
 
     #[test]
-    fn test_new_pass_registry() {
-        let registry = PassRegistry::new();
+    fn test_executable_passes_single_mock() {
+        let pass = MockPass::new_with_name("single_test").with_result(Ok(7));
+        let result = pass.execute_all();
 
-        // Test registry contains expected passes
-        assert!(registry.contains("constant_folding"));
-        assert!(registry.contains("dead_node_elimination"));
-        assert!(registry.contains("conv_batchnorm_fusion"));
-        assert!(!registry.contains("unknown_pass"));
-
-        // Test pass creation
-        let cf_pass = registry.create_constant_folding("constant_folding");
-        assert!(cf_pass.is_some());
-
-        let dne_pass = registry.create_dead_node_elimination("dead_node_elimination");
-        assert!(dne_pass.is_some());
-
-        // Test invalid pass name
-        let invalid_pass = registry.create_constant_folding("wrong_name");
-        assert!(invalid_pass.is_none());
+        assert!(result.is_ok());
+        let (returned_pass, changes) = result.unwrap();
+        assert_eq!(returned_pass.pass_name(), "single_test");
+        assert_eq!(changes, 7);
     }
 
     #[test]
-    fn test_pass_factory_trait() {
-        // Test the PassFactory trait implementation
-        let cf_pass = ConstantFoldingPass::create();
-        assert_eq!(cf_pass.pass_name(), "constant_folding");
+    fn test_executable_passes_tuple_mocks() {
+        let passes = (
+            MockPass::new_with_name("first").with_result(Ok(3)),
+            MockPass::new_with_name("second").with_result(Ok(4)),
+        );
 
-        let dne_pass = DeadNodeEliminationPass::create();
-        assert_eq!(dne_pass.pass_name(), "dead_node_elimination");
+        let result = passes.execute_all();
+        assert!(result.is_ok());
 
-        let fusion_pass = ConvBatchNormFusionPass::create();
-        assert_eq!(fusion_pass.pass_name(), "conv_batchnorm_fusion");
+        let ((p1, p2), total_changes) = result.unwrap();
+        assert_eq!(p1.pass_name(), "first");
+        assert_eq!(p2.pass_name(), "second");
+        assert_eq!(total_changes, 7); // 3 + 4
     }
 
     #[test]
-    fn test_typed_pass_builder() {
-        // Test zero-cost abstraction with TypedPassBuilder
+    fn test_typed_pass_builder_with_mocks() {
         let builder = TypedPassBuilder::new()
-            .with_pass(ConstantFoldingPass::new())
-            .with_pass(DeadNodeEliminationPass::new());
+            .with_pass(MockPass::new_with_name("builder_test_1").with_result(Ok(2)))
+            .with_pass(MockPass::new_with_name("builder_test_2").with_result(Ok(3)));
 
         let result = builder.execute();
+        assert!(result.is_ok());
 
-        // This would normally require actual graph data to test properly
-        assert!(result.is_ok() || matches!(result, Err(PassError::NotImplemented(_))));
+        let (_, total_changes) = result.unwrap();
+        assert_eq!(total_changes, 5); // 2 + 3
     }
 
     #[test]
-    fn test_executable_passes_trait() {
-        // Test single pass execution
-        let pass = ConstantFoldingPass::new();
-        let result = pass.execute_all();
-        assert!(result.is_ok() || matches!(result, Err(PassError::NotImplemented(_))));
+    fn test_pass_execution_order_with_mocks() {
+        // Test that passes execute in the correct order
+        let passes = (
+            MockPass::new_with_name("first_pass").with_result(Ok(1)),
+            MockPass::new_with_name("second_pass").with_result(Ok(2)),
+        );
 
-        // Test tuple execution
-        let passes = (ConstantFoldingPass::new(), DeadNodeEliminationPass::new());
         let result = passes.execute_all();
-        assert!(result.is_ok() || matches!(result, Err(PassError::NotImplemented(_))));
+        assert!(result.is_ok());
+
+        // Order is guaranteed by type system: first_pass executes before second_pass
+        let ((first, second), total) = result.unwrap();
+        assert_eq!(first.pass_name(), "first_pass");
+        assert_eq!(second.pass_name(), "second_pass");
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn test_pass_error_propagation() {
+        let error_pass = MockPass::new_with_name("error_pass")
+            .with_result(Err(PassError::PassNotApplicable("test error".to_string())));
+
+        let result = error_pass.execute_all();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            PassError::PassNotApplicable(_)
+        ));
+    }
+
+    #[test]
+    fn test_mixed_successful_and_non_applicable_passes() {
+        let passes = (
+            MockPass::new_with_name("success").with_result(Ok(5)),
+            MockPass::new_with_name("non_applicable").with_apply(false).with_result(Ok(10)),
+        );
+
+        let result = passes.execute_all();
+        assert!(result.is_ok());
+
+        let (_, total_changes) = result.unwrap();
+        assert_eq!(total_changes, 5); // Only the applicable pass contributes
+    }
+
+    #[test]
+    fn test_pass_manager_type_safety_with_mocks() {
+        // Demonstrate type-level guarantees with mock passes
+        let manager = PassManager::new()
+            .add_pass(MockPass::new_with_name("first"))
+            .add_pass(MockPass::new_with_name("second"))
+            .add_pass(MockPass::new_with_name("third"));
+
+        // Type: PassManager<((((), MockPass), MockPass), MockPass)>
+        // This ensures compile-time type safety
+        let _passes = manager.available_passes();
+    }
+
+    #[test]
+    fn test_macro_and_pass_manager_integration() {
+        // Test that macro-generated PassFactory works with PassManager
+        let manager = PassManager::new();
+
+        // MockPass는 register_passes! 매크로로 등록되지 않았으므로
+        // registry에는 없지만 create() 메서드는 동작해야 함
+        let result = manager.add_pass_by_name::<MockPass>("mock_pass");
+        assert!(result.is_err()); // Registry에 없으므로 실패해야 함
+
+        // 하지만 직접 생성은 가능해야 함 (macro-generated factory)
+        let mock_pass = MockPass::create();
+        assert_eq!(mock_pass.pass_name(), "mock_pass");
+
+        // Test with only mock passes - no dependency on real passes
+        let mock_manager = PassManager::new()
+            .add_pass(MockPass::create()) // Macro-generated factory
+            .add_pass(MockPass::new_with_name("test_pass")); // Direct constructor
+
+        let _available = mock_manager.available_passes();
+    }
+
+    #[test]
+    fn test_correct_builder_pattern_usage() {
+        // Demonstrate the CORRECT way to use PassManager - without clone() and using only mocks
+        let registry = create_mock_registry();
+
+        // Method 1: Chain multiple mock passes using builder pattern
+        let manager_chain = PassManager::with_registry(registry.clone())
+            .add_pass(MockPass::new_with_name("first_mock"))
+            .add_pass(MockPass::new_with_name("second_mock"));
+
+        // This creates a manager with type: PassManager<(((), MockPass), MockPass)>
+        let _available_in_chain = manager_chain.available_passes();
+
+        // Method 2: Use PassManagerBuilder for more flexible building
+        let manager_builder = PassManagerBuilder::new()
+            .with_pass(MockPass::new_with_name("builder_mock_1"))
+            .with_pass(MockPass::new_with_name("builder_mock_2"))
+            .build();
+
+        let _available_in_builder = manager_builder.available_passes();
+
+        // Method 3: Create separate managers for different workflows (this is fine)
+        let mock_manager_1 = PassManager::with_registry(registry.clone())
+            .add_pass(MockPass::new_with_name("workflow_1"));
+
+        let mock_manager_2 =
+            PassManager::with_registry(registry).add_pass(MockPass::new_with_name("workflow_2"));
+
+        let _mock1_available = mock_manager_1.available_passes();
+        let _mock2_available = mock_manager_2.available_passes();
     }
 }

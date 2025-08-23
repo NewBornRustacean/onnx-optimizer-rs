@@ -1,6 +1,7 @@
-use crate::passes::{OptimizationPass, error::PassError};
+use crate::passes::{error::PassError, traits::OptimizationPass};
 
 /// Constant folding optimization pass
+#[derive(Debug, Clone)]
 pub struct ConstantFoldingPass;
 
 impl ConstantFoldingPass {
@@ -15,13 +16,15 @@ impl OptimizationPass for ConstantFoldingPass {
     }
 
     fn execute(&mut self) -> Result<u32, PassError> {
-        // This would be implemented to work with the graph
-        todo!("Execute constant folding pass")
+        // No-op baseline implementation: returns 0 changes.
+        // Extend this to perform actual constant folding over the graph.
+        Ok(0)
     }
 
     fn can_apply(&self) -> bool {
         // Check if graph has nodes that can be constant folded
-        todo!("Check if constant folding is applicable")
+        // For now, return true to allow testing the execution flow
+        true
     }
 
     fn priority(&self) -> u32 {

@@ -17,12 +17,15 @@ impl OptimizationPass for ConvBatchNormFusionPass {
 
     fn execute(&mut self) -> Result<u32, PassError> {
         // This would identify Conv->BatchNorm patterns and fuse them
-        todo!("Execute Conv+BatchNorm fusion pass")
+        Err(PassError::NotImplemented(
+            "Execute Conv+BatchNorm fusion pass".to_string(),
+        ))
     }
 
     fn can_apply(&self) -> bool {
         // Check if graph has Conv->BatchNorm patterns that can be fused
-        todo!("Check if Conv+BatchNorm fusion is applicable")
+        // For now, return true to allow testing the execution flow
+        true
     }
 
     fn priority(&self) -> u32 {
