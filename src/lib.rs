@@ -1,6 +1,6 @@
 pub mod graph;
-pub mod utils;
 pub mod passes;
+pub mod utils;
 
 pub use graph::{
     DataType, Graph, GraphView, Node, NodeAttrValue, NodeId, OpKind, Tensor, ValueId,
@@ -13,10 +13,6 @@ pub use utils::{
     io::{load_model, save_model},
 };
 
-pub use passes::{
-    manager::PassManager,
-    traits::OptimizationPass,
-    algorithms::constant_folding::ConstantFolding,
-};
+pub use passes::{algorithms::EliminateIdentity, manager::PassManager, traits::OptimizationPass};
 
 pub use onnx_proto::*;

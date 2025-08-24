@@ -1,3 +1,3 @@
-pub mod constant_folding;
+pub mod eliminate_identity;
 
-pub use constant_folding::*;
+pub use eliminate_identity::*;

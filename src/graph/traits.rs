@@ -9,9 +9,6 @@ pub trait GraphView {
     /// Get tensor data by ValueId
     fn tensor(&self, id: ValueId) -> Option<&Tensor>;
 
-    /// Get a snapshot list of all node IDs in the graph
-    fn node_ids(&self) -> Vec<NodeId>;
-
     /// Get input values for a node
     fn inputs(&self, node: NodeId) -> &[ValueId];
 
