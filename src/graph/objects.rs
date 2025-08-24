@@ -769,10 +769,6 @@ impl GraphView for Graph {
         self.values.get(&id)
     }
 
-    fn node_ids(&self) -> Vec<NodeId> {
-        self.nodes.node_indices().collect()
-    }
-
     fn inputs(&self, node: NodeId) -> &[ValueId] {
         self.nodes.node_weight(node).map(|n| n.inputs.as_slice()).unwrap_or(&[])
     }

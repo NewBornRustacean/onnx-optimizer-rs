@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api = Api::new()?;
 
     // Specify the model repository (SBERT tiny ONNX model)
-    let model_id = "sentence-transformers-testing/stsb-bert-tiny-onnx".to_string();
+    let model_id = "Qdrant/all-MiniLM-L6-v2-onnx".to_string();
     let repo = Repo::with_revision(model_id, RepoType::Model, "main".to_string());
 
     // Get a reference to the repository for downloading
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download the ONNX model file
     println!("Downloading model.onnx...");
-    let downloaded_file = api_repo.get("onnx/model.onnx")?;
+    let downloaded_file = api_repo.get("model.onnx")?;
 
     // Create examples directory if it doesn't exist
     let examples_dir = Path::new("examples");
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Copy the downloaded file to examples directory
-    let local_model_path = examples_dir.join("stsb-bert-tiny.onnx");
+    let local_model_path = examples_dir.join("all-MiniLM-L6-v2.onnx");
     fs::copy(&downloaded_file, &local_model_path)?;
 
     println!("Model saved to: {}", local_model_path.display());

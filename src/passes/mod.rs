@@ -1,11 +1,10 @@
-pub mod basic;
+pub mod algorithms;
 pub mod error;
-pub mod fusion;
 pub mod manager;
 pub mod traits;
 
-pub use basic::*;
+// Re-export commonly used types
 pub use error::*;
-pub use fusion::*;
 pub use manager::*;
 pub use traits::*;
+pub use algorithms::*;
