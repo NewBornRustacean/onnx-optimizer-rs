@@ -1,13 +1,9 @@
-pub mod base;
-pub mod basic;
 pub mod error;
-pub mod fusion;
-pub mod manager;
 pub mod traits;
+pub mod manager;
+pub mod algorithms;
 
-pub use base::*;
-pub use basic::*;
-pub use error::*;
-pub use fusion::*;
-pub use manager::*;
-pub use traits::*;
+// Re-export commonly used types
+pub use error::PassError;
+pub use traits::OptimizationPass;
+pub use manager::{PassManager};

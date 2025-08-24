@@ -54,15 +54,6 @@ pub trait GraphAnalysis: GraphView {
     /// Mark the cached topology as invalid due to graph changes
     fn invalidate_topology(&mut self);
 
-    /// Check if a node can have its constants folded
-    fn can_fold_constant(&self, node_id: NodeId) -> bool;
-
-    /// Check if a node is dead (unreachable from outputs)
-    fn is_dead_node(&self, node_id: NodeId) -> bool;
-
-    /// Check if an operation type supports constant folding
-    fn supports_constant_folding(op_kind: &OpKind) -> bool;
-
     /// Validate graph consistency after modifications
     fn validate_graph(&self) -> Result<(), GraphError>;
 }
