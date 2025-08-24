@@ -1,6 +1,6 @@
 use crate::graph::{
     Graph,
-    objects::{NodeId, OpKind},
+    objects::{NodeId, OpKind, ValueId},
     traits::GraphView,
 };
 use crate::passes::{error::PassError, traits::OptimizationPass};
@@ -52,6 +52,53 @@ impl EliminateIdentity {
         true
     }
 
+    /// Replace all occurrences of old_value with new_value in the graph  
+    /// Optimized for petgraph StableGraph best practices
+    fn replace_value_in_graph(&self, graph: &mut Graph, old_value: ValueId, new_value: ValueId) {
+        // Optimized strategy: batch collect consumer indices first to avoid repeated graph queries
+        let consumer_indices: Vec<_> = graph.consumers(old_value);
+        
+        // Early exit if no consumers (common case optimization)
+        if consumer_indices.is_empty() {
+            self.replace_in_graph_boundaries(&mut graph.graph_input_values, &mut graph.graph_output_values, old_value, new_value);
+            return;
+        }
+
+        // Petgraph best practice: use direct for loop to avoid borrowing conflicts
+        // This is cleaner and avoids closure escape issues
+        for &consumer_node_id in &consumer_indices {
+            if let Some(node) = graph.nodes.node_weight_mut(consumer_node_id) {
+                // Use slice operations for maximum performance
+                self.replace_value_in_slice(&mut node.inputs, old_value, new_value);
+            }
+        }
+
+        // Handle graph boundaries
+        self.replace_in_graph_boundaries(&mut graph.graph_input_values, &mut graph.graph_output_values, old_value, new_value);
+    }
+
+    /// Helper: replace value in a slice efficiently  
+    #[inline]
+    fn replace_value_in_slice(&self, slice: &mut [ValueId], old_value: ValueId, new_value: ValueId) {
+        slice
+            .iter_mut()
+            .filter(|value_ref| **value_ref == old_value)
+            .for_each(|value_ref| *value_ref = new_value);
+    }
+
+    /// Helper: replace values in graph input/output boundaries
+    #[inline]
+    fn replace_in_graph_boundaries(
+        &self, 
+        graph_inputs: &mut [ValueId], 
+        graph_outputs: &mut [ValueId], 
+        old_value: ValueId, 
+        new_value: ValueId
+    ) {
+        self.replace_value_in_slice(graph_inputs, old_value, new_value);
+        self.replace_value_in_slice(graph_outputs, old_value, new_value);
+    }
+
     /// Eliminate a single Identity node
     fn eliminate_identity_node(
         &self,
@@ -62,25 +109,16 @@ impl EliminateIdentity {
             return Ok(false);
         }
 
-        let node = graph.node(node_id).unwrap();
-        let input_value = node.inputs[0];
-        let output_value = node.outputs[0];
+        let node = graph.node(node_id).expect("Node existence already verified");
+        let (input_value, output_value) = (node.inputs[0], node.outputs[0]);
 
-        // Find all consumers of the output value
-        let consumers = graph.consumers(output_value);
+        // Replace all uses of output_value with input_value
+        self.replace_value_in_graph(graph, output_value, input_value);
 
-        // TODO: Implement actual graph modification
-        // For now, we'll just simulate the elimination
-        // In a real implementation, you would:
-        // 1. Replace all uses of output_value with input_value
-        // 2. Remove the node from the graph
-        // 3. Remove the output value from the graph
+        // Clean up - remove node and unused value
+        graph.nodes.remove_node(node_id);
+        graph.values.remove(&output_value);
 
-        // graph.replace_value_uses(output_value, input_value);
-        // graph.remove_node(node_id);
-        // graph.remove_value(output_value);
-
-        // For now, just return that we could eliminate it
         Ok(true)
     }
 }
@@ -175,6 +213,53 @@ mod tests {
         let result = pass.execute(&mut graph);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1); // Should eliminate 1 identity node
+    }
+
+    #[test]
+    fn test_identity_elimination_with_consumers() {
+        use crate::graph::traits::GraphEdit;
+        
+        let mut graph = Graph::new();
+        
+        // Create tensors
+        let input_tensor = Tensor::new(DataType::Float32);
+        let identity_output_tensor = Tensor::new(DataType::Float32);
+        let final_output_tensor = Tensor::new(DataType::Float32);
+        
+        let input_id = graph.add_value(input_tensor);
+        let identity_output_id = graph.add_value(identity_output_tensor);
+        let final_output_id = graph.add_value(final_output_tensor);
+        
+        // Create Identity node: input -> identity_output
+        let identity_node = Node::new(OpKind::Identity)
+            .with_inputs(vec![input_id])
+            .with_outputs(vec![identity_output_id]);
+        let identity_node_id = graph.add_node(identity_node);
+        
+        // Create consumer node: identity_output -> final_output
+        let consumer_node = Node::new(OpKind::Relu)
+            .with_inputs(vec![identity_output_id])
+            .with_outputs(vec![final_output_id]);
+        let consumer_node_id = graph.add_node(consumer_node);
+        
+        // Verify initial state
+        assert_eq!(graph.node(consumer_node_id).unwrap().inputs[0], identity_output_id);
+        
+        // Execute identity elimination
+        let pass = EliminateIdentity::new();
+        let result = pass.execute(&mut graph);
+        
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 1);
+        
+        // Verify the consumer now uses the input directly
+        assert_eq!(graph.node(consumer_node_id).unwrap().inputs[0], input_id);
+        
+        // Verify the identity node is gone
+        assert!(graph.node(identity_node_id).is_none());
+        
+        // Verify the identity output tensor is gone
+        assert!(graph.tensor(identity_output_id).is_none());
     }
 
     #[test]

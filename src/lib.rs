@@ -1,6 +1,7 @@
 pub mod graph;
 pub mod passes;
 pub mod utils;
+pub mod executor;
 
 pub use graph::{
     DataType, Graph, GraphView, Node, NodeAttrValue, NodeId, OpKind, Tensor, ValueId,
@@ -13,6 +14,12 @@ pub use utils::{
     io::{load_model, save_model},
 };
 
-pub use passes::{algorithms::EliminateIdentity, manager::PassManager, traits::OptimizationPass};
+pub use passes::{
+    algorithms::EliminateIdentity,
+    manager::{PassManager, Pass},
+    traits::OptimizationPass,
+};
+
+pub use executor::composer::{OptimizationComposer, OptimizationStatistics, ComposerConfig};
 
 pub use onnx_proto::*;

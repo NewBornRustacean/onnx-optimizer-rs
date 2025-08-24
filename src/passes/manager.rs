@@ -112,4 +112,32 @@ mod tests {
         // Empty graph should result in 0 changes, which is expected
         assert_eq!(result.unwrap(), 0);
     }
+
+    #[test]
+    fn test_execute_with_identity_elimination() {
+        use crate::graph::{objects::{Node, OpKind, Tensor, DataType}, traits::GraphEdit};
+        
+        let manager =
+            PassManager::new().add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
+
+        let mut graph = Graph::new();
+        
+        // Create a simple graph with Identity node
+        let input_tensor = Tensor::new(DataType::Float32);
+        let output_tensor = Tensor::new(DataType::Float32);
+        
+        let input_id = graph.add_value(input_tensor);
+        let output_id = graph.add_value(output_tensor);
+        
+        let identity_node = Node::new(OpKind::Identity)
+            .with_inputs(vec![input_id])
+            .with_outputs(vec![output_id]);
+        
+        graph.add_node(identity_node);
+        
+        let result = manager.execute_all(&mut graph);
+        assert!(result.is_ok());
+        // Should eliminate 1 identity node
+        assert_eq!(result.unwrap(), 1);
+    }
 }
