@@ -41,6 +41,10 @@ pub trait GraphEdit: GraphView {
 
     /// Remove a value from the graph
     fn remove_value(&mut self, value: ValueId);
+
+    /// Replace all occurrences of old_value with new_value throughout the graph
+    /// This includes node inputs/outputs and graph boundaries
+    fn replace_value(&mut self, old_value: ValueId, new_value: ValueId);
 }
 
 /// Utility trait for graph analysis operations
