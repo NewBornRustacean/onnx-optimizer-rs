@@ -371,7 +371,7 @@ impl OptimizationComposer {
 mod tests {
     use super::*;
     use crate::passes::manager::{PassManager, Pass};
-    use crate::passes::algorithms::EliminateIdentity;
+    use crate::passes::eliminations::EliminateIdentity;
 
     #[test]
     fn test_composer_creation() {

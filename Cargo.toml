@@ -15,4 +15,5 @@ thiserror = "2.0.12"
 
 [dev-dependencies]
 hf-hub = "0.4.3"
+ort = "1.16.3"
 tempfile = "3.8"

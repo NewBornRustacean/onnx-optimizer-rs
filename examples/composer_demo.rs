@@ -82,42 +82,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     
-    println!("\n🔄 Testing with different configuration (no progress bar)...");
+    // println!("\n🔄 Testing with different configuration (no progress bar)...");
     
-    // Reload the model for a fresh start
-    let model_proto_2 = load_model(model_path)?;
-    let mut graph_2 = Graph::from_model_proto(&model_proto_2)?;
+    // // Reload the model for a fresh start
+    // let model_proto_2 = load_model(model_path)?;
+    // let mut graph_2 = Graph::from_model_proto(&model_proto_2)?;
     
-    // Test with different configuration - no progress bar, detailed output
-    let silent_config = ComposerConfig {
-        show_progress: false, // No progress bar
-        show_detailed_progress: true, // But show iteration details in console
-        collect_memory_stats: true,
-        max_iterations: Some(5), // Fewer iterations for comparison
-        convergence_threshold: 0, // Run until no changes
-    };
+    // // Test with different configuration - no progress bar, detailed output
+    // let silent_config = ComposerConfig {
+    //     show_progress: false, // No progress bar
+    //     show_detailed_progress: true, // But show iteration details in console
+    //     collect_memory_stats: true,
+    //     max_iterations: Some(5), // Fewer iterations for comparison
+    //     convergence_threshold: 0, // Run until no changes
+    // };
     
-    let pass_manager_2 = PassManager::new()
-        .add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
+    // let pass_manager_2 = PassManager::new()
+    //     .add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
     
-    let mut composer_2 = OptimizationComposer::with_config(pass_manager_2, silent_config);
+    // let mut composer_2 = OptimizationComposer::with_config(pass_manager_2, silent_config);
     
-    match composer_2.execute(&mut graph_2) {
-        Ok(stats) => {
-            println!("✅ Silent optimization completed!");
-            println!("  Iterations: {}", stats.total_passes);
-            println!("  Total changes: {}", stats.total_changes);
-            println!("  Execution time: {:.2?}", stats.total_execution_time);
-            println!("  Peak memory: {:.1} MB", stats.memory_peak as f64 / 1024.0 / 1024.0);
-            println!("  Success rate: {:.1}%", 
-                (stats.successful_passes as f64 / stats.total_passes as f64) * 100.0);
-        }
-        Err(e) => {
-            eprintln!("❌ Silent optimization failed: {}", e);
-        }
-    }
+    // match composer_2.execute(&mut graph_2) {
+    //     Ok(stats) => {
+    //         println!("✅ Silent optimization completed!");
+    //         println!("  Iterations: {}", stats.total_passes);
+    //         println!("  Total changes: {}", stats.total_changes);
+    //         println!("  Execution time: {:.2?}", stats.total_execution_time);
+    //         println!("  Peak memory: {:.1} MB", stats.memory_peak as f64 / 1024.0 / 1024.0);
+    //         println!("  Success rate: {:.1}%", 
+    //             (stats.successful_passes as f64 / stats.total_passes as f64) * 100.0);
+    //     }
+    //     Err(e) => {
+    //         eprintln!("❌ Silent optimization failed: {}", e);
+    //     }
+    // }
     
-    println!("\n🎉 Demo completed!");
+    // println!("\n🎉 Demo completed!");
     Ok(())
 }
 

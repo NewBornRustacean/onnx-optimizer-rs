@@ -842,6 +842,50 @@ impl GraphEdit for Graph {
     fn remove_value(&mut self, value: ValueId) {
         self.values.remove(&value);
     }
+
+    fn replace_value(&mut self, old_value: ValueId, new_value: ValueId) {
+        // Get consumer nodes before making changes
+        let consumer_indices: Vec<_> = self.consumers(old_value);
+        
+        // Early exit if no consumers (common case optimization)
+        if consumer_indices.is_empty() {
+            Self::replace_in_graph_boundaries(&mut self.graph_input_values, &mut self.graph_output_values, old_value, new_value);
+            return;
+        }
+
+        // Update consumer nodes' inputs
+        for &consumer_node_id in &consumer_indices {
+            if let Some(node) = self.nodes.node_weight_mut(consumer_node_id) {
+                Self::replace_value_in_slice(&mut node.inputs, old_value, new_value);
+            }
+        }
+
+        // Handle graph boundaries (inputs/outputs)
+        Self::replace_in_graph_boundaries(&mut self.graph_input_values, &mut self.graph_output_values, old_value, new_value);
+    }
+}
+
+impl Graph {
+    /// Helper: replace value in a slice efficiently  
+    #[inline]
+    fn replace_value_in_slice(slice: &mut [ValueId], old_value: ValueId, new_value: ValueId) {
+        slice
+            .iter_mut()
+            .filter(|value_ref| **value_ref == old_value)
+            .for_each(|value_ref| *value_ref = new_value);
+    }
+
+    /// Helper: replace values in graph input/output boundaries
+    #[inline]
+    fn replace_in_graph_boundaries(
+        graph_inputs: &mut [ValueId], 
+        graph_outputs: &mut [ValueId], 
+        old_value: ValueId, 
+        new_value: ValueId
+    ) {
+        Self::replace_value_in_slice(graph_inputs, old_value, new_value);
+        Self::replace_value_in_slice(graph_outputs, old_value, new_value);
+    }
 }
 
 #[cfg(test)]
@@ -1062,5 +1106,61 @@ mod tests {
         assert_eq!(added_node.attributes.len(), 2);
         assert!(added_node.attributes.contains_key("kernel_shape"));
         assert!(added_node.attributes.contains_key("strides"));
+    }
+
+    #[test]
+    fn test_replace_value_basic() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        
+        // Create a node that uses value_ids[0] as input
+        let node = create_test_node_with_io(OpKind::Relu, vec![value_ids[0]], vec![value_ids[1]]);
+        let node_id = graph.add_node(node);
+        
+        // Replace value_ids[0] with value_ids[2]
+        graph.replace_value(value_ids[0], value_ids[2]);
+        
+        // Verify the replacement happened
+        assert_eq!(graph.node(node_id).unwrap().inputs[0], value_ids[2]);
+    }
+
+    #[test]
+    fn test_replace_value_multiple_consumers() {
+        let (mut graph, value_ids) = create_test_graph_with_values();
+        
+        // Create multiple nodes that use the same input
+        let node1 = create_test_node_with_io(OpKind::Relu, vec![value_ids[0]], vec![value_ids[1]]);
+        let node2 = create_test_node_with_io(OpKind::Sigmoid, vec![value_ids[0]], vec![value_ids[2]]);
+        
+        let node_id1 = graph.add_node(node1);
+        let node_id2 = graph.add_node(node2);
+        
+        // Replace value_ids[0] with value_ids[3]
+        graph.replace_value(value_ids[0], value_ids[3]);
+        
+        // Verify both nodes were updated
+        assert_eq!(graph.node(node_id1).unwrap().inputs[0], value_ids[3]);
+        assert_eq!(graph.node(node_id2).unwrap().inputs[0], value_ids[3]);
+    }
+
+    #[test]
+    fn test_replace_value_in_graph_boundaries() {
+        let mut graph = Graph::new();
+        
+        // Create values
+        let old_value = graph.add_value(create_test_tensor("old"));
+        let new_value = graph.add_value(create_test_tensor("new"));
+        
+        // Set old_value as graph input and output
+        graph.graph_input_values.push(old_value);
+        graph.graph_output_values.push(old_value);
+        
+        // Replace the value
+        graph.replace_value(old_value, new_value);
+        
+        // Verify graph boundaries were updated
+        assert!(graph.graph_input_values.contains(&new_value));
+        assert!(graph.graph_output_values.contains(&new_value));
+        assert!(!graph.graph_input_values.contains(&old_value));
+        assert!(!graph.graph_output_values.contains(&old_value));
     }
 }

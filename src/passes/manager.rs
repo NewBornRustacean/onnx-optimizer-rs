@@ -1,12 +1,13 @@
 use crate::{
     graph::Graph,
-    passes::{algorithms::EliminateIdentity, error::PassError, traits::OptimizationPass},
+    passes::{eliminations::{EliminateIdentity, EliminateNopTranspose}, error::PassError, traits::OptimizationPass},
 };
 
 /// Individual optimization pass implementations
 #[derive(Debug)]
 pub enum Pass {
     EliminateIdentity(EliminateIdentity),
+    EliminateNopTranspose(EliminateNopTranspose),
 
     // TODO: Add more pass implementations
     // DeadNodeElimination(DeadNodeElimination),
@@ -20,6 +21,7 @@ impl OptimizationPass for Pass {
     fn pass_name(&self) -> String {
         match self {
             Pass::EliminateIdentity(p) => p.pass_name(),
+            Pass::EliminateNopTranspose(p) => p.pass_name(),
             Pass::Placeholder => "Placeholder".to_string(),
         }
     }
@@ -27,6 +29,7 @@ impl OptimizationPass for Pass {
     fn execute(&self, graph: &mut Graph) -> Result<u32, PassError> {
         match self {
             Pass::EliminateIdentity(p) => p.execute(graph),
+            Pass::EliminateNopTranspose(p) => p.execute(graph),
             Pass::Placeholder => Ok(0),
         }
     }
@@ -95,10 +98,11 @@ mod tests {
 
     #[test]
     fn test_pass_manager_chaining() {
-        let manager =
-            PassManager::new().add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
+        let manager = PassManager::new()
+            .add_pass(Pass::EliminateIdentity(EliminateIdentity::new()))
+            .add_pass(Pass::EliminateNopTranspose(EliminateNopTranspose::new()));
 
-        assert_eq!(manager.passes.len(), 1);
+        assert_eq!(manager.passes.len(), 2);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use crate::graph::{
     Graph,
     objects::{NodeId, OpKind, ValueId},
-    traits::GraphView,
+    traits::{GraphView, GraphEdit},
 };
 use crate::passes::{error::PassError, traits::OptimizationPass};
 
@@ -52,52 +52,7 @@ impl EliminateIdentity {
         true
     }
 
-    /// Replace all occurrences of old_value with new_value in the graph  
-    /// Optimized for petgraph StableGraph best practices
-    fn replace_value_in_graph(&self, graph: &mut Graph, old_value: ValueId, new_value: ValueId) {
-        // Optimized strategy: batch collect consumer indices first to avoid repeated graph queries
-        let consumer_indices: Vec<_> = graph.consumers(old_value);
-        
-        // Early exit if no consumers (common case optimization)
-        if consumer_indices.is_empty() {
-            self.replace_in_graph_boundaries(&mut graph.graph_input_values, &mut graph.graph_output_values, old_value, new_value);
-            return;
-        }
 
-        // Petgraph best practice: use direct for loop to avoid borrowing conflicts
-        // This is cleaner and avoids closure escape issues
-        for &consumer_node_id in &consumer_indices {
-            if let Some(node) = graph.nodes.node_weight_mut(consumer_node_id) {
-                // Use slice operations for maximum performance
-                self.replace_value_in_slice(&mut node.inputs, old_value, new_value);
-            }
-        }
-
-        // Handle graph boundaries
-        self.replace_in_graph_boundaries(&mut graph.graph_input_values, &mut graph.graph_output_values, old_value, new_value);
-    }
-
-    /// Helper: replace value in a slice efficiently  
-    #[inline]
-    fn replace_value_in_slice(&self, slice: &mut [ValueId], old_value: ValueId, new_value: ValueId) {
-        slice
-            .iter_mut()
-            .filter(|value_ref| **value_ref == old_value)
-            .for_each(|value_ref| *value_ref = new_value);
-    }
-
-    /// Helper: replace values in graph input/output boundaries
-    #[inline]
-    fn replace_in_graph_boundaries(
-        &self, 
-        graph_inputs: &mut [ValueId], 
-        graph_outputs: &mut [ValueId], 
-        old_value: ValueId, 
-        new_value: ValueId
-    ) {
-        self.replace_value_in_slice(graph_inputs, old_value, new_value);
-        self.replace_value_in_slice(graph_outputs, old_value, new_value);
-    }
 
     /// Eliminate a single Identity node
     fn eliminate_identity_node(
@@ -113,7 +68,7 @@ impl EliminateIdentity {
         let (input_value, output_value) = (node.inputs[0], node.outputs[0]);
 
         // Replace all uses of output_value with input_value
-        self.replace_value_in_graph(graph, output_value, input_value);
+        graph.replace_value(output_value, input_value);
 
         // Clean up - remove node and unused value
         graph.nodes.remove_node(node_id);
