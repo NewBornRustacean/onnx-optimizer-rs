@@ -15,7 +15,7 @@ pub use utils::{
 };
 
 pub use passes::{
-    algorithms::EliminateIdentity,
+    eliminations::*,
     manager::{PassManager, Pass},
     traits::OptimizationPass,
 };

@@ -1,6 +1,6 @@
 use crate::{
     graph::Graph,
-    passes::{algorithms::{EliminateIdentity, EliminateNopTranspose}, error::PassError, traits::OptimizationPass},
+    passes::{eliminations::{EliminateIdentity, EliminateNopTranspose}, error::PassError, traits::OptimizationPass},
 };
 
 /// Individual optimization pass implementations

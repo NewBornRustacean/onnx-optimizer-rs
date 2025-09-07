@@ -1,4 +1,4 @@
-pub mod algorithms;
+pub mod eliminations;
 pub mod error;
 pub mod manager;
 pub mod traits;
@@ -7,4 +7,4 @@ pub mod traits;
 pub use error::*;
 pub use manager::*;
 pub use traits::*;
-pub use algorithms::*;
+pub use eliminations::*;
