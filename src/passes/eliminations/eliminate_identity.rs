@@ -1,7 +1,7 @@
 use crate::graph::{
     Graph,
     objects::{NodeId, OpKind, ValueId},
-    traits::{GraphView, GraphEdit},
+    traits::{GraphEdit, GraphView},
 };
 use crate::passes::{error::PassError, traits::OptimizationPass};
 
@@ -51,8 +51,6 @@ impl EliminateIdentity {
 
         true
     }
-
-
 
     /// Eliminate a single Identity node
     fn eliminate_identity_node(
@@ -173,46 +171,49 @@ mod tests {
     #[test]
     fn test_identity_elimination_with_consumers() {
         use crate::graph::traits::GraphEdit;
-        
+
         let mut graph = Graph::new();
-        
+
         // Create tensors
         let input_tensor = Tensor::new(DataType::Float32);
         let identity_output_tensor = Tensor::new(DataType::Float32);
         let final_output_tensor = Tensor::new(DataType::Float32);
-        
+
         let input_id = graph.add_value(input_tensor);
         let identity_output_id = graph.add_value(identity_output_tensor);
         let final_output_id = graph.add_value(final_output_tensor);
-        
+
         // Create Identity node: input -> identity_output
         let identity_node = Node::new(OpKind::Identity)
             .with_inputs(vec![input_id])
             .with_outputs(vec![identity_output_id]);
         let identity_node_id = graph.add_node(identity_node);
-        
+
         // Create consumer node: identity_output -> final_output
         let consumer_node = Node::new(OpKind::Relu)
             .with_inputs(vec![identity_output_id])
             .with_outputs(vec![final_output_id]);
         let consumer_node_id = graph.add_node(consumer_node);
-        
+
         // Verify initial state
-        assert_eq!(graph.node(consumer_node_id).unwrap().inputs[0], identity_output_id);
-        
+        assert_eq!(
+            graph.node(consumer_node_id).unwrap().inputs[0],
+            identity_output_id
+        );
+
         // Execute identity elimination
         let pass = EliminateIdentity::new();
         let result = pass.execute(&mut graph);
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1);
-        
+
         // Verify the consumer now uses the input directly
         assert_eq!(graph.node(consumer_node_id).unwrap().inputs[0], input_id);
-        
+
         // Verify the identity node is gone
         assert!(graph.node(identity_node_id).is_none());
-        
+
         // Verify the identity output tensor is gone
         assert!(graph.tensor(identity_output_id).is_none());
     }

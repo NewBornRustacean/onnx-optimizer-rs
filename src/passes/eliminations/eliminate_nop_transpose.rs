@@ -1,7 +1,7 @@
 use crate::graph::{
     Graph,
-    objects::{NodeId, OpKind, ValueId, NodeAttrValue},
-    traits::{GraphView, GraphEdit},
+    objects::{NodeAttrValue, NodeId, OpKind, ValueId},
+    traits::{GraphEdit, GraphView},
 };
 use crate::passes::{error::PassError, traits::OptimizationPass};
 
@@ -32,7 +32,7 @@ impl EliminateNopTranspose {
     }
 
     /// Check if a Transpose node is a no-operation
-    /// 
+    ///
     /// Returns true if the transpose operation doesn't change the tensor layout:
     /// - Identity permutation: perm = [0, 1, 2, ..., n-1]
     /// - Missing perm attribute (defaults to identity)  
@@ -66,11 +66,15 @@ impl EliminateNopTranspose {
     }
 
     /// Check if the permutation attribute represents an identity transformation
-    /// 
+    ///
     /// Returns true if:
     /// - No perm attribute (defaults to identity)
     /// - perm = [0, 1, 2, ..., n-1] where n is the tensor rank
-    fn is_identity_permutation(&self, node: &crate::graph::objects::Node, shape: Option<&Vec<i64>>) -> bool {
+    fn is_identity_permutation(
+        &self,
+        node: &crate::graph::objects::Node,
+        shape: Option<&Vec<i64>>,
+    ) -> bool {
         match node.attributes.get("perm") {
             Some(NodeAttrValue::Ints(perm_values)) => {
                 self.is_identity_perm_array(perm_values, shape)
@@ -87,7 +91,7 @@ impl EliminateNopTranspose {
     }
 
     /// Check if a permutation array represents identity transformation
-    /// 
+    ///
     /// For a tensor with rank n, identity permutation is [0, 1, 2, ..., n-1]
     fn is_identity_perm_array(&self, perm: &[i64], shape: Option<&Vec<i64>>) -> bool {
         // If we don't know the shape, we can't validate the permutation
@@ -106,7 +110,7 @@ impl EliminateNopTranspose {
     }
 
     /// Check if a Transpose node can be safely eliminated
-    /// 
+    ///
     /// Additional safety checks beyond is_nop_transpose:
     /// - Input and output tensors exist
     /// - No other constraints that prevent elimination
@@ -121,7 +125,7 @@ impl EliminateNopTranspose {
             return false;
         }
 
-        // Verify output tensor exists  
+        // Verify output tensor exists
         if graph.tensor(node.outputs[0]).is_none() {
             return false;
         }
@@ -132,10 +136,8 @@ impl EliminateNopTranspose {
         true
     }
 
-
-
     /// Eliminate a single no-op Transpose node
-    /// 
+    ///
     /// Process:
     /// 1. Verify the node can be eliminated
     /// 2. Replace all uses of output with input
@@ -200,7 +202,7 @@ mod tests {
     use crate::graph::traits::GraphEdit;
     use crate::graph::{
         Graph,
-        objects::{DataType, Node, OpKind, Tensor, ValueId, NodeAttrValue},
+        objects::{DataType, Node, NodeAttrValue, OpKind, Tensor, ValueId},
     };
 
     fn create_test_tensor(name: &str) -> Tensor {
@@ -226,12 +228,11 @@ mod tests {
         let mut transpose_node = Node::new(OpKind::Transpose)
             .with_inputs(vec![input_id])
             .with_outputs(vec![output_id]);
-        
+
         // Add identity permutation attribute
-        transpose_node.attributes.insert(
-            "perm".to_string(), 
-            NodeAttrValue::Ints(vec![0, 1, 2])
-        );
+        transpose_node
+            .attributes
+            .insert("perm".to_string(), NodeAttrValue::Ints(vec![0, 1, 2]));
 
         let node_id = graph.add_node(transpose_node);
 
@@ -255,11 +256,11 @@ mod tests {
 
         // Identity permutation
         assert!(pass.is_identity_perm_array(&[0, 1, 2], Some(&shape)));
-        
+
         // Non-identity permutation
         assert!(!pass.is_identity_perm_array(&[1, 0, 2], Some(&shape)));
         assert!(!pass.is_identity_perm_array(&[2, 1, 0], Some(&shape)));
-        
+
         // Wrong length
         assert!(!pass.is_identity_perm_array(&[0, 1], Some(&shape)));
         assert!(!pass.is_identity_perm_array(&[0, 1, 2, 3], Some(&shape)));
