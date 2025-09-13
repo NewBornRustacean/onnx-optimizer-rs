@@ -1,9 +1,11 @@
-use crate::graph::{
-    Graph,
-    objects::{NodeId, OpKind, ValueId},
-    traits::{GraphEdit, GraphView},
+use crate::{
+    graph::{
+        Graph,
+        objects::{NodeId, OpKind, ValueId},
+        traits::{GraphEdit, GraphView},
+    },
+    passes::{error::PassError, traits::OptimizationPass},
 };
-use crate::passes::{error::PassError, traits::OptimizationPass};
 
 /// Eliminates Identity nodes by connecting their inputs directly to their outputs
 ///
@@ -104,10 +106,10 @@ impl OptimizationPass for EliminateIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::traits::GraphEdit;
     use crate::graph::{
         Graph,
         objects::{DataType, Node, OpKind, Tensor, ValueId},
+        traits::GraphEdit,
     };
 
     fn create_test_graph_with_identity() -> (Graph, NodeId, ValueId, ValueId) {

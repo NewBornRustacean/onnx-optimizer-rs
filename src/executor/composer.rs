@@ -1,11 +1,15 @@
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
+
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use sysinfo::System;
+
 use crate::{
     graph::Graph,
     passes::{error::PassError, manager::PassManager},
 };
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use sysinfo::System;
 
 /// Statistics collected during optimization
 #[derive(Debug, Clone)]
@@ -397,8 +401,10 @@ impl OptimizationComposer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::passes::eliminations::EliminateIdentity;
-    use crate::passes::manager::{Pass, PassManager};
+    use crate::passes::{
+        eliminations::EliminateIdentity,
+        manager::{Pass, PassManager},
+    };
 
     #[test]
     fn test_composer_creation() {

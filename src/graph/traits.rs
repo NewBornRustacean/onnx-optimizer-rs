@@ -1,5 +1,7 @@
-use crate::graph::error::GraphError;
-use crate::graph::objects::{Node, NodeId, OpKind, Tensor, ValueId};
+use crate::graph::{
+    error::GraphError,
+    objects::{Node, NodeId, OpKind, Tensor, ValueId},
+};
 
 /// Core graph interface for reading operations
 pub trait GraphView {

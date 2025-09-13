@@ -1,11 +1,13 @@
-use crate::utils::error::OnnxOptError;
-use onnx_proto;
-use prost::Message;
 use std::{
     fs::File,
     io::{Read, Write},
     path::Path,
 };
+
+use onnx_proto;
+use prost::Message;
+
+use crate::utils::error::OnnxOptError;
 
 /// *.onnx → ModelProto
 pub fn load_model<P: AsRef<Path>>(path: P) -> Result<onnx_proto::ModelProto, OnnxOptError> {
@@ -107,9 +109,11 @@ impl FromLeBytes for u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::NamedTempFile;
+
+    use super::*;
 
     /// Creates a minimal ONNX model with a single Identity operator
     fn create_minimal_model() -> onnx_proto::ModelProto {

@@ -1,13 +1,16 @@
-use crate::graph::traits::{GraphEdit, GraphView};
-use crate::utils::error::OnnxOptError;
-use crate::utils::io::FromLeBytes;
-use onnx_proto::attribute_proto::AttributeType;
-use onnx_proto::tensor_proto::DataType as ProtoType;
-use onnx_proto::{AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto, ValueInfoProto};
+use std::{collections::HashMap, str::FromStr};
+
+use onnx_proto::{
+    AttributeProto, GraphProto, ModelProto, NodeProto, TensorProto, ValueInfoProto,
+    attribute_proto::AttributeType, tensor_proto::DataType as ProtoType,
+};
 use petgraph::stable_graph::{NodeIndex, StableGraph};
-use std::collections::HashMap;
-use std::str::FromStr;
 use strum_macros::{AsRefStr, Display, EnumString};
+
+use crate::{
+    graph::traits::{GraphEdit, GraphView},
+    utils::{error::OnnxOptError, io::FromLeBytes},
+};
 
 /// Node identifier using petgraph's NodeIndex directly
 pub type NodeId = NodeIndex;

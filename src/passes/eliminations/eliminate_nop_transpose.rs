@@ -1,9 +1,11 @@
-use crate::graph::{
-    Graph,
-    objects::{NodeAttrValue, NodeId, OpKind, ValueId},
-    traits::{GraphEdit, GraphView},
+use crate::{
+    graph::{
+        Graph,
+        objects::{NodeAttrValue, NodeId, OpKind, ValueId},
+        traits::{GraphEdit, GraphView},
+    },
+    passes::{error::PassError, traits::OptimizationPass},
 };
-use crate::passes::{error::PassError, traits::OptimizationPass};
 
 /// Eliminates no-operation Transpose nodes
 ///
@@ -199,10 +201,10 @@ impl OptimizationPass for EliminateNopTranspose {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::traits::GraphEdit;
     use crate::graph::{
         Graph,
         objects::{DataType, Node, NodeAttrValue, OpKind, Tensor, ValueId},
+        traits::GraphEdit,
     };
 
     fn create_test_tensor(name: &str) -> Tensor {

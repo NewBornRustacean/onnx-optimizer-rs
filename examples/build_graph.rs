@@ -1,8 +1,7 @@
-use hf_hub::api::sync::Api;
-use hf_hub::{Repo, RepoType};
+use std::{fs, path::Path};
+
+use hf_hub::{Repo, RepoType, api::sync::Api};
 use onnx_optimizer_rs::{Graph, GraphView, load_model};
-use std::fs;
-use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Downloading ONNX model from Hugging Face...");
