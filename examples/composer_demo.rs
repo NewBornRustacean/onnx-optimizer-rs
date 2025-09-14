@@ -2,15 +2,14 @@ use std::{fs, path::Path};
 
 use hf_hub::{Repo, RepoType, api::sync::Api};
 use onnx_optimizer_rs::{
-    ComposerConfig, EliminateIdentity, Graph, GraphView, OptimizationComposer, Pass, PassManager,
-    load_model,
+    ComposerConfig, Graph, GraphView, OptimizationComposer, load_model, pass_manger_with_passes,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 ONNX Optimizer Composer Demo");
     println!("   Downloading model...");
     // Check if model exists, download if not
-    let model_path = Path::new("examples/all-MiniLM-L6-v2.onnx");
+    let model_path = Path::new("examples/resnet50_unoptimized/model.onnx");
 
     if !model_path.exists() {
         println!("📥 Model not found, downloading from Hugging Face...");
@@ -46,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Set up pass manager with optimization passes
     let pass_manager =
-        PassManager::new().add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
+        pass_manger_with_passes![EliminateIdentity, EliminateNopConcat, EliminateNopTranspose];
 
     // Configure the composer for detailed statistics and progress tracking
     let config = ComposerConfig {
@@ -81,42 +80,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // println!("\n🔄 Testing with different configuration (no progress bar)...");
-
-    // // Reload the model for a fresh start
-    // let model_proto_2 = load_model(model_path)?;
-    // let mut graph_2 = Graph::from_model_proto(&model_proto_2)?;
-
-    // // Test with different configuration - no progress bar, detailed output
-    // let silent_config = ComposerConfig {
-    //     show_progress: false, // No progress bar
-    //     show_detailed_progress: true, // But show iteration details in console
-    //     collect_memory_stats: true,
-    //     max_iterations: Some(5), // Fewer iterations for comparison
-    //     convergence_threshold: 0, // Run until no changes
-    // };
-
-    // let pass_manager_2 = PassManager::new()
-    //     .add_pass(Pass::EliminateIdentity(EliminateIdentity::new()));
-
-    // let mut composer_2 = OptimizationComposer::with_config(pass_manager_2, silent_config);
-
-    // match composer_2.execute(&mut graph_2) {
-    //     Ok(stats) => {
-    //         println!("✅ Silent optimization completed!");
-    //         println!("  Iterations: {}", stats.total_passes);
-    //         println!("  Total changes: {}", stats.total_changes);
-    //         println!("  Execution time: {:.2?}", stats.total_execution_time);
-    //         println!("  Peak memory: {:.1} MB", stats.memory_peak as f64 / 1024.0 / 1024.0);
-    //         println!("  Success rate: {:.1}%",
-    //             (stats.successful_passes as f64 / stats.total_passes as f64) * 100.0);
-    //     }
-    //     Err(e) => {
-    //         eprintln!("❌ Silent optimization failed: {}", e);
-    //     }
-    // }
-
-    // println!("\n🎉 Demo completed!");
     Ok(())
 }
 

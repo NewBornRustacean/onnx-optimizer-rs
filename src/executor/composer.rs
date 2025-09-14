@@ -234,15 +234,6 @@ impl OptimizationComposer {
     /// Execute optimization with fixed-point iteration until convergence
     /// This is the main entry point for optimization
     pub fn execute(&mut self, graph: &mut Graph) -> Result<OptimizationStatistics, PassError> {
-        self.execute_to_convergence(graph)
-    }
-
-    /// Execute optimization with fixed-point iteration
-    /// Uses the ONNX Optimizer approach: execute all passes sequentially, check for changes, repeat until convergence
-    pub fn execute_to_convergence(
-        &mut self,
-        graph: &mut Graph,
-    ) -> Result<OptimizationStatistics, PassError> {
         let mut stats = OptimizationStatistics::new();
         let start_time = Instant::now();
         let mut iteration = 0;

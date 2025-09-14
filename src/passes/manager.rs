@@ -1,10 +1,6 @@
 use crate::{
     graph::Graph,
-    passes::{
-        eliminations::{EliminateIdentity, EliminateNopTranspose},
-        error::PassError,
-        traits::OptimizationPass,
-    },
+    passes::{eliminations::*, error::PassError, traits::OptimizationPass},
 };
 
 /// Individual optimization pass implementations
@@ -12,10 +8,7 @@ use crate::{
 pub enum Pass {
     EliminateIdentity(EliminateIdentity),
     EliminateNopTranspose(EliminateNopTranspose),
-
-    // TODO: Add more pass implementations
-    // DeadNodeElimination(DeadNodeElimination),
-    // FuseConvBatchnorm(FuseConvBatchnorm),
+    EliminateNopConcat(EliminateNopConcat),
 
     // Placeholder for testing
     Placeholder,
@@ -26,6 +19,7 @@ impl OptimizationPass for Pass {
         match self {
             Pass::EliminateIdentity(p) => p.pass_name(),
             Pass::EliminateNopTranspose(p) => p.pass_name(),
+            Pass::EliminateNopConcat(p) => p.pass_name(),
             Pass::Placeholder => "Placeholder".to_string(),
         }
     }
@@ -34,6 +28,7 @@ impl OptimizationPass for Pass {
         match self {
             Pass::EliminateIdentity(p) => p.execute(graph),
             Pass::EliminateNopTranspose(p) => p.execute(graph),
+            Pass::EliminateNopConcat(p) => p.execute(graph),
             Pass::Placeholder => Ok(0),
         }
     }
@@ -87,6 +82,16 @@ impl Default for PassManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[macro_export]
+macro_rules! pass_manger_with_passes {
+    ($($pass:ident), * $(,)? ) => {
+        $crate::passes::PassManager::new()
+        $(
+            .add_pass($crate::passes::Pass::$pass($crate::passes::$pass::new()))
+        )*
+    };
 }
 
 #[cfg(test)]
